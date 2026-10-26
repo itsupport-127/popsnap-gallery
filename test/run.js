@@ -1,7 +1,7 @@
 // Uji: tanda tangan SigV4 (vektor resmi AWS) + alur lengkap dengan S3 tiruan.
 process.env.DATA_DIR = require("fs").mkdtempSync(require("os").tmpdir() + "/gal-");
 process.env.STUDIO_TOKENS = "tokenstudioA0000000:Studio A,tokenstudioB0000000:Studio B";
-process.env.ADMIN_PASSWORD = "rahasia"; process.env.PUBLIC_URL = "https://foto.example.com";
+process.env.ADMIN_PASSWORD = "rahasia"; process.env.ADMIN_ALLOW_BASIC = "1"; process.env.PUBLIC_URL = "https://foto.example.com";
 const assert = require("assert"), http = require("http"), zlib = require("zlib");
 const { presignRaw } = require("../src/s3");
 
@@ -39,6 +39,25 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
   const j = async (p, o) => { const r = await fetch(base + p, o); return { status: r.status, body: await r.json().catch(() => null), r }; };
 
   assert.strictEqual((await j("/admin/api/state")).status, 401);
+  // login lewat halaman: tanpa popup Basic Auth, cookie sesi, batas percobaan
+  const lp = await fetch(`${base}/admin`); assert.strictEqual(lp.status, 401); assert(!lp.headers.get("www-authenticate"), "tidak boleh memunculkan popup Basic Auth"); assert((await lp.text()).includes("Masuk ke galeri"));
+  const JS = { "Content-Type": "application/json" };
+  assert.strictEqual((await j("/admin/api/login", { method: "POST", headers: JS, body: JSON.stringify({ username: "admin", password: "salah" }) })).status, 401);
+  const good = await fetch(`${base}/admin/api/login`, { method: "POST", headers: JS, body: JSON.stringify({ username: "admin", password: "rahasia" }) }); assert.strictEqual(good.status, 200);
+  const ck = good.headers.get("set-cookie"); assert(/HttpOnly/.test(ck) && /SameSite=Strict/.test(ck), ck);
+  const cookie = ck.split(";")[0];
+  assert.strictEqual((await j("/admin/api/state", { headers: { Cookie: cookie } })).status, 200);
+  assert.strictEqual((await fetch(`${base}/admin`, { headers: { Cookie: cookie } })).status, 200);
+  assert.strictEqual((await j("/admin/api/state", { headers: { Cookie: cookie.slice(0, -3) + "xyz" } })).status, 401, "cookie palsu harus ditolak");
+  // Basic Auth mati secara bawaan (supaya tombol Keluar efektif): dengan flag mati, kredensial Basic yang benar pun ditolak
+  process.env.ADMIN_ALLOW_BASIC = "0";
+  assert.strictEqual((await j("/admin/api/state", { headers: admin })).status, 401, "Basic harus ditolak saat ADMIN_ALLOW_BASIC bukan 1");
+  const lo = await fetch(`${base}/admin/api/logout`, { method: "POST", headers: { Cookie: cookie } }); assert(/Max-Age=0/.test(lo.headers.get("set-cookie")));
+  process.env.ADMIN_ALLOW_BASIC = "1";
+  for (let i = 0; i < 5; i++) await j("/admin/api/login", { method: "POST", headers: { ...JS, "X-Real-IP": "9.9.9.9" }, body: JSON.stringify({ username: "admin", password: "x" + i }) });
+  assert.strictEqual((await j("/admin/api/login", { method: "POST", headers: { ...JS, "X-Real-IP": "9.9.9.9" }, body: JSON.stringify({ username: "admin", password: "rahasia" }) })).status, 429, "harus terkunci setelah 5x salah");
+  assert.strictEqual((await j("/admin/api/login", { method: "POST", headers: { ...JS, "X-Real-IP": "8.8.8.8" }, body: JSON.stringify({ username: "admin", password: "rahasia" }) })).status, 200, "IP lain tidak ikut terkunci");
+  console.log("ok  login admin: halaman masuk, cookie sesi, cookie palsu ditolak, kunci 5x salah");
   assert.strictEqual((await j("/api/v1/ping", { headers: { Authorization: "Bearer salahsalahsalahsalah" } })).status, 401);
   // tanpa bucket -> 503
   assert.strictEqual((await j("/api/v1/sessions", { method: "POST", headers: A, body: JSON.stringify({ token: "abcDEF1234567890", files: [{ fid: "f", kind: "final", ext: "jpg", size: 10 }] }) })).status, 503);

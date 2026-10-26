@@ -8,7 +8,7 @@ input,select{padding:7px 9px;border:1px solid #c6ccd6;border-radius:8px;font:inh
 button{padding:8px 14px;border-radius:8px;border:1px solid #181B23;background:#FDB533;font-weight:700;cursor:pointer}button.s{background:#fff}button.d{background:#fff;color:#c0182f;border-color:#c0182f}
 .ok{color:#0a7d3b}.bad{color:#c0182f}.muted{color:#6b7480;font-size:13px}
 </style></head><body><main>
-<h1>POPSNAP Galeri</h1><div class="muted" id="top"></div>
+<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><h1>POPSNAP Galeri</h1><div class="muted" id="top"></div></div><button class="s" onclick="logout()">Keluar</button></div>
 <div class="card"><b>Masa simpan file</b>
 <div class="grid" style="margin-top:8px;max-width:420px"><div><label>Hari (file dihapus otomatis setelahnya)</label><input id="ret" type="number" min="1" max="365"></div><div style="align-self:end"><button onclick="saveRet()">Simpan</button></div></div>
 <div class="muted">Berlaku untuk sesi BARU. Rekomendasi: 7 atau 15 hari.</div></div>
@@ -42,7 +42,8 @@ Pilih <b>folder tanggal</b> (mis. <code>2026-10-23</code>) untuk mengunggah bany
 <div class="card"><b>Studio</b><table id="st"></table></div>
 </main><script>
 let editId=null;const $=i=>document.getElementById(i);
-const api=async(u,o)=>{const r=await fetch(u,{headers:{'Content-Type':'application/json'},...o});return r.json()};
+const api=async(u,o)=>{const r=await fetch(u,{headers:{'Content-Type':'application/json'},...o});if(r.status===401){location.reload();return {}}return r.json()};
+async function logout(){await fetch('/admin/api/logout',{method:'POST'});location.replace('/admin')}
 async function load(){const s=await api('/admin/api/state');$('ret').value=s.retentionDays;$('zip').value=s.zipEnabled===false?'0':'1';
 $('top').textContent=`${s.stats.sessions} sesi · ${s.stats.files} file tersimpan · ${s.stats.pending} menunggu unggah · alamat publik: ${s.publicUrl||'(PUBLIC_URL belum diisi!)'}`;
 $('bt').innerHTML='<tr><th>Nama</th><th>Bucket</th><th>Prioritas</th><th>Terpakai</th><th>Status</th><th></th></tr>'+s.buckets.map(b=>`<tr><td>${b.name}</td><td>${b.bucket}<div class="muted">${b.endpoint}</div></td><td>${b.priority}</td><td>${b.usedGB} GB${b.quotaGB?' / '+b.quotaGB+' GB':''}</td><td class="${b.enabled?'ok':'bad'}">${b.enabled?'Aktif':'Nonaktif'}<div id="t${b.id}" class="muted"></div></td><td><button class="s" onclick='editB(${JSON.stringify(b)})'>Ubah</button> <button class="s" onclick="testB(${b.id})">Tes</button> <button class="d" onclick="delB(${b.id})">Hapus</button></td></tr>`).join('')||'<tr><td class="muted">Belum ada bucket. Tambahkan di bawah.</td></tr>';

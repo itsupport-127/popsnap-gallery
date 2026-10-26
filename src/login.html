@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="color-scheme" content="light">
+<title>POPSNAP Galeri — Masuk</title>
+<link rel="icon" href="/assets/favicon.svg">
+<style>
+@font-face{font-family:"Fredoka";font-weight:700;font-style:normal;font-display:swap;src:url(/assets/fredoka-700.woff2) format("woff2")}
+@font-face{font-family:"Plus Jakarta Sans";font-weight:200 800;font-style:normal;font-display:swap;src:url(/assets/jakarta.woff2) format("woff2")}
+:root{--ink:#181B23;--red:#E02843;--red-dark:#B81D35;--yellow:#FFD23F;--muted:#55606E;--line:#C7D0DA;--bad:#B3122B}
+*{box-sizing:border-box}
+html{background:#285068}
+body{margin:0;min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:24px 16px;font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);
+  background:url(/assets/grain.png),linear-gradient(180deg,#6EA0C1 0%,#4082AE 45%,#285068 100%)}
+main{width:min(400px,100%)}
+.logo{display:block;height:44px;width:auto;margin:0 auto 22px;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))}
+.card{background:#fff;border:2px solid #000;border-radius:20px;padding:26px 24px 24px;box-shadow:6px 6px 0 #000;animation:settle .45s cubic-bezier(.2,.9,.3,1.2) both}
+@keyframes settle{from{opacity:0;transform:translateY(-14px) rotate(-.8deg)}to{opacity:1;transform:none}}
+h1{margin:0 0 4px;font-family:Fredoka,"Plus Jakarta Sans",sans-serif;font-style:italic;font-weight:700;font-size:28px;line-height:1.15}
+.sub{margin:0 0 20px;color:var(--muted);font-size:14px;line-height:1.5}
+label{display:block;margin:0 0 6px;font-size:13px;font-weight:600}
+.field{margin-bottom:16px}
+input{width:100%;height:46px;padding:0 14px;border:2px solid var(--line);border-radius:12px;background:#fff;color:var(--ink);font:inherit;font-size:16px;transition:border-color .15s}
+input:hover{border-color:#8A97A6}
+input:focus{outline:none;border-color:#000;box-shadow:0 0 0 4px var(--yellow)}
+.pw{position:relative}
+.pw input{padding-right:92px}
+.toggle{position:absolute;right:6px;top:6px;height:34px;padding:0 12px;border:0;border-radius:8px;background:transparent;color:var(--muted);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.toggle:hover{background:#EEF2F6;color:var(--ink)}
+.toggle:focus-visible{outline:3px solid var(--yellow);outline-offset:0;background:#EEF2F6}
+.go{width:100%;height:50px;margin-top:6px;border:2px solid #000;border-radius:999px;background:var(--red);color:#fff;font-family:Fredoka,"Plus Jakarta Sans",sans-serif;font-style:italic;font-weight:700;font-size:20px;cursor:pointer;box-shadow:0 4px 0 #000;transition:transform .08s,box-shadow .08s,background .15s}
+.go:hover{background:var(--red-dark)}
+.go:active{transform:translateY(3px);box-shadow:0 1px 0 #000}
+.go:focus-visible{outline:4px solid var(--yellow);outline-offset:3px}
+.go[disabled]{opacity:.7;cursor:progress}
+.msg{min-height:20px;margin:14px 0 0;font-size:14px;line-height:1.45;color:var(--bad);font-weight:600}
+.foot{margin:18px 0 0;text-align:center;color:rgba(255,255,255,.85);font-size:13px;text-shadow:0 1px 2px rgba(0,0,0,.35)}
+@media (prefers-reduced-motion:reduce){.card{animation:none}.go{transition:none}}
+@media (max-width:380px){.card{padding:22px 18px 20px}h1{font-size:25px}}
+</style>
+</head>
+<body>
+<main>
+  <img class="logo" src="/assets/logo.png" alt="POPSNAP">
+  <section class="card" aria-labelledby="t">
+    <h1 id="t">Masuk ke galeri</h1>
+    <p class="sub">Atur bucket cloud, masa simpan file, dan unggah manual.</p>
+    <form id="f" autocomplete="on" novalidate>
+      <div class="field">
+        <label for="u">Nama pengguna</label>
+        <input id="u" name="username" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus required>
+      </div>
+      <div class="field">
+        <label for="p">Kata sandi</label>
+        <div class="pw">
+          <input id="p" name="password" type="password" autocomplete="current-password" required>
+          <button type="button" class="toggle" id="tg" aria-controls="p" aria-pressed="false">Tampilkan</button>
+        </div>
+      </div>
+      <button class="go" id="go" type="submit">Masuk</button>
+      <p class="msg" id="m" role="alert" aria-live="assertive"></p>
+    </form>
+  </section>
+  <p class="foot">Halaman ini hanya untuk pengelola studio.</p>
+</main>
+<script>
+(function () {
+  var f = document.getElementById("f"), u = document.getElementById("u"), p = document.getElementById("p");
+  var go = document.getElementById("go"), m = document.getElementById("m"), tg = document.getElementById("tg");
+  tg.addEventListener("click", function () {
+    var show = p.type === "password";
+    p.type = show ? "text" : "password";
+    tg.textContent = show ? "Sembunyikan" : "Tampilkan";
+    tg.setAttribute("aria-pressed", show ? "true" : "false");
+    p.focus();
+  });
+  f.addEventListener("submit", function (e) {
+    e.preventDefault();
+    m.textContent = "";
+    if (!u.value.trim()) { m.textContent = "Isi nama pengguna."; u.focus(); return; }
+    if (!p.value) { m.textContent = "Isi kata sandi."; p.focus(); return; }
+    go.disabled = true; go.textContent = "Memeriksa…";
+    fetch("/admin/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username: u.value.trim(), password: p.value }) })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (r) {
+        if (r.ok) { location.replace("/admin"); return; }
+        m.textContent = r.j.error || "Tidak bisa masuk. Coba lagi.";
+        go.disabled = false; go.textContent = "Masuk";
+        p.select();
+      })
+      .catch(function () {
+        m.textContent = "Tidak terhubung ke server. Cek internet lalu coba lagi.";
+        go.disabled = false; go.textContent = "Masuk";
+      });
+  });
+})();
+</script>
+</body>
+</html>
