@@ -1,0 +1,9 @@
+{
+  "name": "popsnap-gallery",
+  "version": "1.0.0",
+  "description": "POPSNAP Galeri: halaman unduh QR (template di atas, mentahan di bawah) + penyimpanan cloud S3/R2 multi-bucket",
+  "main": "src/server.js",
+  "engines": { "node": ">=22.5.0" },
+  "scripts": { "start": "node src/server.js", "test": "node test/run.js" },
+  "dependencies": { "express": "^5.2.1" }
+}

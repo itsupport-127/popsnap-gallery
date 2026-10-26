@@ -1,0 +1,110 @@
+<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>POPSNAP Galeri — Admin</title>
+<style>
+body{font-family:system-ui,sans-serif;background:#f4f6f9;color:#181B23;margin:0}main{max-width:980px;margin:0 auto;padding:20px}
+h1{margin:0 0 4px}.card{background:#fff;border:1px solid #d9dee6;border-radius:12px;padding:16px;margin:14px 0}
+table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:8px;border-bottom:1px solid #eef0f4;text-align:left;vertical-align:top}
+input,select{padding:7px 9px;border:1px solid #c6ccd6;border-radius:8px;font:inherit;width:100%;box-sizing:border-box}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}label{font-size:12px;color:#55606E;display:block;margin-bottom:3px}
+button{padding:8px 14px;border-radius:8px;border:1px solid #181B23;background:#FDB533;font-weight:700;cursor:pointer}button.s{background:#fff}button.d{background:#fff;color:#c0182f;border-color:#c0182f}
+.ok{color:#0a7d3b}.bad{color:#c0182f}.muted{color:#6b7480;font-size:13px}
+</style></head><body><main>
+<h1>POPSNAP Galeri</h1><div class="muted" id="top"></div>
+<div class="card"><b>Masa simpan file</b>
+<div class="grid" style="margin-top:8px;max-width:420px"><div><label>Hari (file dihapus otomatis setelahnya)</label><input id="ret" type="number" min="1" max="365"></div><div style="align-self:end"><button onclick="saveRet()">Simpan</button></div></div>
+<div class="muted">Berlaku untuk sesi BARU. Rekomendasi: 7 atau 15 hari.</div></div>
+<div class="card"><b>Tombol "Unduh semua" di halaman pelanggan</b>
+<div style="margin-top:8px"><select id="zip" onchange="saveZip()"><option value="1">ZIP — satu file berisi semua foto</option><option value="0">Tanpa ZIP — file diunduh satu per satu</option></select></div>
+<div class="muted">ZIP praktis tapi di sebagian HP (terutama iPhone) harus dibuka dulu. Tanpa ZIP, foto langsung bisa disimpan ke galeri tapi browser mungkin meminta izin unduhan berganda. Tombol "Unduh" per foto selalu ada.</div></div>
+<div class="card"><b>Penyimpanan cloud (S3 / Cloudflare R2)</b>
+<div class="muted">Sesi baru ditaruh di bucket dengan nomor prioritas terkecil yang masih muat; sama prioritas = dibagi rata. Kalau satu penuh atau gagal, otomatis pindah ke yang lain.</div>
+<table id="bt"></table></div>
+<div class="card"><b id="ftitle">Tambah bucket</b>
+<div class="grid" style="margin-top:8px">
+<div><label>Jenis penyimpanan</label><select id="f_kind" onchange="pickKind()"><option value="r2">Cloudflare R2</option><option value="b2">Backblaze B2</option><option value="s3">S3 lain (Wasabi, MinIO, dll.)</option></select></div>
+<div><label>Nama</label><input id="f_name" placeholder="R2 akun 1"></div>
+<div><label>Endpoint</label><input id="f_endpoint" placeholder="https://xxxx.r2.cloudflarestorage.com"></div>
+<div><label>Region</label><input id="f_region" value="auto" placeholder="auto"></div>
+<div><label>Nama bucket</label><input id="f_bucket"></div>
+<div><label>Access key ID</label><input id="f_accessKey"></div>
+<div><label>Secret access key <span class="muted" id="f_sec"></span></label><input id="f_secretKey" type="password" autocomplete="new-password"></div>
+<div><label>Prioritas (kecil = dipakai dulu)</label><input id="f_priority" type="number" value="10"></div>
+<div><label>Batas kapasitas GB (0 = tanpa batas)</label><input id="f_quotaGB" type="number" value="10"></div>
+<div><label>Aktif</label><select id="f_enabled"><option value="1">Ya</option><option value="0">Tidak</option></select></div>
+</div><p class="muted" id="f_hint">R2: buat bucket PRIVATE + API token "Object Read & Write". Endpoint ada di halaman R2 (S3 API). Region: auto.</p><p><button onclick="saveB()">Simpan bucket</button> <button class="s" onclick="resetF()">Batal / baru</button> <span id="fmsg"></span></p></div>
+<div class="card"><b>Unggah manual dari PC CS</b>
+<div class="muted">Dipakai kalau internet PC booth bermasalah. Dari PC CS (yang bisa membuka folder hasil booth lewat jaringan bersama), pilih folder hasil, lalu file diunggah lewat website ini ke cloud dan link-nya langsung hidup untuk pelanggan.
+Pilih <b>folder tanggal</b> (mis. <code>2026-10-23</code>) untuk mengunggah banyak sesi sekaligus, atau satu <b>folder sesi</b>. Sesi yang sudah terunggah dilewati otomatis.</div>
+<div class="grid" style="margin-top:10px;max-width:640px">
+<div><label>Nama studio (kalau belum terbaca otomatis)</label><input id="u_studio" list="studios" placeholder="mis. Studio Emma"><datalist id="studios"></datalist></div>
+<div style="align-self:end"><button onclick="document.getElementById('u_dir').click()">Pilih folder…</button> <button class="s" onclick="document.getElementById('u_files').click()">Pilih file…</button>
+<input id="u_dir" type="file" webkitdirectory multiple hidden onchange="startUpload(this.files)"><input id="u_files" type="file" multiple hidden onchange="startUpload(this.files)"></div></div>
+<p id="u_msg" class="muted"></p><table id="u_t"></table></div>
+<div class="card"><b>Studio</b><table id="st"></table></div>
+</main><script>
+let editId=null;const $=i=>document.getElementById(i);
+const api=async(u,o)=>{const r=await fetch(u,{headers:{'Content-Type':'application/json'},...o});return r.json()};
+async function load(){const s=await api('/admin/api/state');$('ret').value=s.retentionDays;$('zip').value=s.zipEnabled===false?'0':'1';
+$('top').textContent=`${s.stats.sessions} sesi · ${s.stats.files} file tersimpan · ${s.stats.pending} menunggu unggah · alamat publik: ${s.publicUrl||'(PUBLIC_URL belum diisi!)'}`;
+$('bt').innerHTML='<tr><th>Nama</th><th>Bucket</th><th>Prioritas</th><th>Terpakai</th><th>Status</th><th></th></tr>'+s.buckets.map(b=>`<tr><td>${b.name}</td><td>${b.bucket}<div class="muted">${b.endpoint}</div></td><td>${b.priority}</td><td>${b.usedGB} GB${b.quotaGB?' / '+b.quotaGB+' GB':''}</td><td class="${b.enabled?'ok':'bad'}">${b.enabled?'Aktif':'Nonaktif'}<div id="t${b.id}" class="muted"></div></td><td><button class="s" onclick='editB(${JSON.stringify(b)})'>Ubah</button> <button class="s" onclick="testB(${b.id})">Tes</button> <button class="d" onclick="delB(${b.id})">Hapus</button></td></tr>`).join('')||'<tr><td class="muted">Belum ada bucket. Tambahkan di bawah.</td></tr>';
+knownStudios=s.studios;$('studios').innerHTML=s.studios.map(x=>`<option value="${x.studio}">`).join('');$('st').innerHTML='<tr><th>Studio</th><th>Sesi</th><th>Terakhir</th></tr>'+s.studios.map(x=>`<tr><td>${x.studio}</td><td>${x.sessions}</td><td>${new Date(x.last).toLocaleString('id-ID')}</td></tr>`).join('')}
+async function saveZip(){await api('/admin/api/settings',{method:'POST',body:JSON.stringify({zipEnabled:$('zip').value})});load()}
+async function saveRet(){await api('/admin/api/settings',{method:'POST',body:JSON.stringify({retentionDays:$('ret').value})});load()}
+function editB(b){editId=b.id;$('f_kind').value=/backblazeb2\.com/.test(b.endpoint)?'b2':/r2\.cloudflarestorage\.com/.test(b.endpoint)?'r2':'s3';$('ftitle').textContent='Ubah bucket';for(const k of['name','endpoint','region','bucket','accessKey','priority','quotaGB'])$('f_'+k).value=b[k];$('f_enabled').value=b.enabled?'1':'0';$('f_secretKey').value='';$('f_sec').textContent='(kosongkan = tidak diubah)';scrollTo(0,document.body.scrollHeight)}
+function pickKind(){const k=$('f_kind').value;
+ $('f_endpoint').placeholder=k==='r2'?'https://<ACCOUNT_ID>.r2.cloudflarestorage.com':k==='b2'?'https://s3.us-west-004.backblazeb2.com':'https://s3.contoh.com';
+ $('f_region').value=k==='r2'?'auto':k==='b2'?'':$('f_region').value;$('f_region').placeholder=k==='b2'?'kosong = otomatis dari endpoint':'auto';
+ $('f_accessKey').placeholder=k==='b2'?'keyID (Application Key ID)':'Access key ID';$('f_secretKey').placeholder=k==='b2'?'applicationKey':'Secret access key';
+ $('f_hint').textContent=k==='r2'?'R2: buat bucket PRIVATE + API token "Object Read & Write". Endpoint ada di halaman R2 (S3 API). Region: auto.':k==='b2'?'Backblaze: buat bucket PRIVATE + Application Key (izin Read and Write, dibatasi ke bucket itu). Endpoint = "S3 Endpoint" di detail bucket (mis. s3.us-west-004.backblazeb2.com). Access key = keyID, secret = applicationKey (hanya tampil sekali).':'Pakai alamat S3 dan key dari penyedia Anda.'}
+function resetF(){editId=null;$('ftitle').textContent='Tambah bucket';for(const k of['name','endpoint','bucket','accessKey','secretKey'])$('f_'+k).value='';$('f_region').value='auto';$('f_priority').value=10;$('f_quotaGB').value=10;$('f_enabled').value='1';$('f_sec').textContent='';$('fmsg').textContent=''}
+async function saveB(){const b={id:editId};for(const k of['name','endpoint','region','bucket','accessKey','secretKey','priority','quotaGB'])b[k]=$('f_'+k).value;b.enabled=$('f_enabled').value==='1';const r=await api('/admin/api/buckets',{method:'POST',body:JSON.stringify(b)});$('fmsg').textContent=r.ok?'Tersimpan. Klik "Tes" untuk memastikan.':r.error;$('fmsg').className=r.ok?'ok':'bad';if(r.ok){resetF();load()}}
+async function testB(id){$('t'+id).textContent='menguji…';const r=await api('/admin/api/buckets/'+id+'/test',{method:'POST'});$('t'+id).textContent=r.ok?'✔ tulis & baca berhasil':'✘ '+r.error;$('t'+id).className=r.ok?'ok':'bad'}
+async function delB(id){if(!confirm('Hapus bucket ini? Jika sudah berisi file, hanya dinonaktifkan.'))return;await api('/admin/api/buckets/'+id,{method:'DELETE'});load()}
+
+let knownStudios=[];
+const rnd=()=>{const a=new Uint8Array(10);crypto.getRandomValues(a);return Array.from(a,x=>'23456789ABCDEFGHJKLMNPQRSTUVWXYZ'[x%32]).join('')};
+function mapName(rel){ // rel = path di dalam folder sesi
+  const p=rel.split('/'),n=p[p.length-1],m=/^(.*)\.([A-Za-z0-9]+)$/.exec(n);if(!m)return null;const base=m[1].toLowerCase(),ext=m[2].toLowerCase();
+  if(p.length===1){const k={final:['final','final'],boomerang:['final','boomerang'],session:['gif','gif'],video:['video','video'],live:['live','live'],gifplain:['gifplain','gifplain']}[base];return k?{fid:k[0],kind:k[1],idx:0,ext}:null}
+  if(p.length===2&&p[0]==='raw'){const r=/^shot-(\d+)$/.exec(base);return r?{fid:'raw'+r[1],kind:'raw',idx:+r[1],ext}:null}
+  if(p.length===2&&p[0]==='clips'){const r=/^clip-(\d+)$/.exec(base);return r?{fid:'clip'+r[1],kind:'clip',idx:+r[1],ext}:null}
+  return null}
+async function startUpload(list){
+  const files=Array.from(list);if(!files.length)return;$('u_msg').textContent='Membaca folder…';$('u_msg').className='muted';
+  const rel=f=>f.webkitRelativePath||f.name;
+  // 1) cari berkas popsnap-share.json -> folder sesi
+  const sessions=new Map();
+  for(const f of files){if(f.name==='popsnap-share.json'){try{const j=JSON.parse(await f.text());if(j&&/^[A-Za-z0-9_-]{10,40}$/.test(j.token)){const parts=rel(f).split('/');parts.pop();sessions.set(parts.join('/'),{token:j.token,mode:j.mode||'photo',code:j.studioCode||'',studioName:j.studioName||'',label:parts[parts.length-1]||j.token,files:[]})}}catch(e){}}}
+  const orphan=new Map();
+  for(const f of files){
+    const parts=rel(f).split('/');let hit=null;
+    for(const [dir,s] of sessions){if(dir===''||rel(f).startsWith(dir+'/')){if(!hit||dir.length>hit.dir.length)hit={dir,s}}}
+    if(hit){const m=mapName(rel(f).slice(hit.dir?hit.dir.length+1:0));if(m)hit.s.files.push({...m,size:f.size,file:f})}
+    else if(parts.length>=2){ // folder sesi tanpa popsnap-share.json: token baru (link baru, bagikan ke pelanggan)
+      const dir=parts.slice(0,-1).join('/');const root=/^(raw|clips)$/.test(parts[parts.length-2])?parts.slice(0,-2).join('/'):dir;
+      if(!orphan.has(root))orphan.set(root,{token:rnd(),mode:'photo',code:'',studioName:'',label:root.split('/').pop()||'sesi',files:[],isNew:true});
+      const m=mapName(rel(f).slice(root?root.length+1:0));if(m)orphan.get(root).files.push({...m,size:f.size,file:f})}
+  }
+  const all=[...sessions.values(),...orphan.values()].filter(s=>s.files.length);
+  if(!all.length){$('u_msg').textContent='Tidak ada file hasil yang dikenali. Pilih folder sesi / folder tanggal dari output booth.';$('u_msg').className='bad';return}
+  const typed=$('u_studio').value.trim();
+  const rows=all.map(s=>({s,studio:s.studioName||(knownStudios.find(k=>k.code&&k.code.toUpperCase()===String(s.code).toUpperCase())||{}).studio||typed,state:'antre',done:0,link:null}));
+  if(rows.some(r=>!r.studio)){$('u_msg').textContent='Isi "Nama studio" dulu (studio tidak bisa dikenali dari folder).';$('u_msg').className='bad';return}
+  render(rows);$('u_msg').textContent=`${rows.length} sesi, ${rows.reduce((a,r)=>a+r.s.files.length,0)} file. Jangan tutup halaman ini sampai selesai.`;
+  for(const r of rows){
+    try{
+      r.state='mendaftar';render(rows);
+      const pr=await api('/admin/api/upload/prepare',{method:'POST',body:JSON.stringify({token:r.s.token,studio:r.studio,studioCode:r.s.code,mode:r.s.mode,files:r.s.files.map(({fid,kind,idx,ext,size})=>({fid,kind,idx,ext,size}))})});
+      if(pr.error)throw new Error(pr.error);
+      r.link=pr.shareUrl;const byFid=new Map(r.s.files.map(f=>[f.fid,f]));r.total=pr.uploads.length;
+      for(const u of pr.uploads){
+        r.state=`mengunggah ${r.done+1}/${r.total}`;render(rows);
+        const f=byFid.get(u.fid);let ok=false,err='';
+        for(let t=0;t<3&&!ok;t++){const res=await fetch(u.path,{method:'PUT',headers:{'Content-Type':u.contentType},body:f.file});const j=await res.json().catch(()=>({}));ok=res.ok&&j.ok;err=j.error||('HTTP '+res.status);if(!ok)await new Promise(z=>setTimeout(z,1500))}
+        if(!ok)throw new Error(f.fid+': '+err);r.done++}
+      r.state=pr.uploads.length?'✔ selesai':'✔ sudah lengkap';
+    }catch(e){r.state='✘ '+e.message}
+    render(rows)}
+  $('u_msg').textContent='Selesai. Link di bawah sudah bisa dibuka pelanggan.';$('u_msg').className='ok';load()}
+function render(rows){$('u_t').innerHTML='<tr><th>Sesi</th><th>File</th><th>Status</th><th>Link</th></tr>'+rows.map(r=>`<tr><td>${r.s.label}${r.s.isNew?'<div class="muted">link baru</div>':''}</td><td>${r.s.files.length}</td><td class="${r.state.startsWith('✘')?'bad':r.state.startsWith('✔')?'ok':''}">${r.state}</td><td>${r.link?`<a href="${r.link}" target="_blank">${r.link}</a> <button class="s" onclick="navigator.clipboard.writeText('${r.link}')">Salin</button>`:''}</td></tr>`).join('')}
+load();
+</script></body></html>

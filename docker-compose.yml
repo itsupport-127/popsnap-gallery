@@ -1,0 +1,32 @@
+services:
+  popsnap-gallery:
+    build: .
+    container_name: popsnap-gallery
+    restart: unless-stopped
+    env_file: .env
+    expose:
+      - "8088"
+    volumes:
+      - ./data:/data
+    mem_limit: 512m
+    networks:
+      - gallery-net
+
+  gallery-nginx:
+    image: nginx:alpine
+    container_name: gallery-nginx
+    restart: unless-stopped
+    ports:
+      - "8588:443"
+      - "8589:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./docker/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - popsnap-gallery
+    networks:
+      - gallery-net
+
+networks:
+  gallery-net:
+    driver: bridge
