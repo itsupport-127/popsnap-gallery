@@ -1,25 +1,103 @@
-<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>POPSNAP Galeri — Admin</title>
+<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>POPSNAP Galeri — Admin</title><link rel="icon" href="/assets/icon-popsnap.ico">
 <style>
-body{font-family:system-ui,sans-serif;background:#f4f6f9;color:#181B23;margin:0}main{max-width:980px;margin:0 auto;padding:20px}
-h1{margin:0 0 4px}.card{background:#fff;border:1px solid #d9dee6;border-radius:12px;padding:16px;margin:14px 0}
-table{width:100%;border-collapse:collapse;font-size:14px}td,th{padding:8px;border-bottom:1px solid #eef0f4;text-align:left;vertical-align:top}
-input,select{padding:7px 9px;border:1px solid #c6ccd6;border-radius:8px;font:inherit;width:100%;box-sizing:border-box}
-.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}label{font-size:12px;color:#55606E;display:block;margin-bottom:3px}
-button{padding:8px 14px;border-radius:8px;border:1px solid #181B23;background:#FDB533;font-weight:700;cursor:pointer}button.s{background:#fff}button.d{background:#fff;color:#c0182f;border-color:#c0182f}
-.ok{color:#0a7d3b}.bad{color:#c0182f}.muted{color:#6b7480;font-size:13px}
-</style></head><body><main>
-<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px"><div><h1>POPSNAP Galeri</h1><div class="muted" id="top"></div></div><button class="s" onclick="logout()">Keluar</button></div>
-<div class="card"><b>Masa simpan file</b>
-<div class="grid" style="margin-top:8px;max-width:420px"><div><label>Hari (file dihapus otomatis setelahnya)</label><input id="ret" type="number" min="1" max="365"></div><div style="align-self:end"><button onclick="saveRet()">Simpan</button></div></div>
-<div class="muted">Berlaku untuk sesi BARU. Rekomendasi: 7 atau 15 hari.</div></div>
-<div class="card"><b>Tombol "Unduh semua" di halaman pelanggan</b>
-<div style="margin-top:8px"><select id="zip" onchange="saveZip()"><option value="1">ZIP — satu file berisi semua foto</option><option value="0">Tanpa ZIP — file diunduh satu per satu</option></select></div>
-<div class="muted">ZIP praktis tapi di sebagian HP (terutama iPhone) harus dibuka dulu. Tanpa ZIP, foto langsung bisa disimpan ke galeri tapi browser mungkin meminta izin unduhan berganda. Tombol "Unduh" per foto selalu ada.</div></div>
-<div class="card"><b>Penyimpanan cloud (S3 / Cloudflare R2)</b>
-<div class="muted">Sesi baru ditaruh di bucket dengan nomor prioritas terkecil yang masih muat; sama prioritas = dibagi rata. Kalau satu penuh atau gagal, otomatis pindah ke yang lain.</div>
-<table id="bt"></table></div>
-<div class="card"><b id="ftitle">Tambah bucket</b>
-<div class="grid" style="margin-top:8px">
+@font-face{font-family:"Fredoka";font-weight:700;font-style:normal;font-display:swap;src:url(/assets/fredoka-700.woff2) format("woff2")}
+@font-face{font-family:"Plus Jakarta Sans";font-weight:200 800;font-style:normal;font-display:swap;src:url(/assets/jakarta.woff2) format("woff2")}
+:root{--ink:#181B23;--blue:#4082AE;--red:#E02843;--red-dark:#B81D35;--yellow:#FDB939;--cream:#FFEAC5;--muted:#5B6674;--line:#C7D0DA;--ok:#0a7d3b;--bad:#B3122B;--side:264px}
+*{box-sizing:border-box}
+html{background:#EAF1F7}
+body{margin:0;min-height:100vh;font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);font-size:15px;line-height:1.5}
+.layout{display:grid;grid-template-columns:var(--side) 1fr;min-height:100vh}
+/* ---- sidebar ---- */
+aside{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;padding:22px 16px 18px;background:var(--blue) url(/assets/welcome-noise.png) 0 0/402px 437px;border-right:2px solid #000;z-index:30;overflow:auto}
+.brand{display:block;margin:0 auto 4px;width:168px;height:auto;filter:drop-shadow(0 2px 3px rgba(0,0,0,.25))}
+.tag{margin:0 0 18px;text-align:center;color:#fff;font-style:italic;font-weight:800;font-size:13px;letter-spacing:.04em;text-shadow:0 1px 2px rgba(0,0,0,.35)}
+nav{display:flex;flex-direction:column;gap:6px}
+nav a{position:relative;display:flex;align-items:center;gap:12px;padding:11px 14px;border:1px solid transparent;border-radius:999px;color:#fff;text-decoration:none;font-weight:800;font-style:italic;font-size:15px;text-shadow:0 1px 2px rgba(0,0,0,.25);transition:background .15s}
+nav a svg{width:20px;height:20px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+nav a:hover{background:rgba(255,255,255,.16)}
+nav a.on{background:var(--red);border-color:#000;box-shadow:1px 4px 6px rgba(0,0,0,.3);text-shadow:none;overflow:hidden}
+nav a.on::before{content:"";position:absolute;inset:0;border-radius:inherit;background:url(/assets/speck.svg) 0 0 repeat;pointer-events:none}
+nav a>*{position:relative}
+nav a:focus-visible,.btn:focus-visible,.out:focus-visible{outline:3px solid var(--yellow);outline-offset:2px}
+.sidefoot{margin-top:auto;padding-top:18px}
+.who{margin:0 0 10px;color:#fff;font-size:12px;text-align:center;text-shadow:0 1px 2px rgba(0,0,0,.35);word-break:break-all}
+.out{display:flex;width:100%;align-items:center;justify-content:center;gap:8px;height:42px;border:1px solid #000;border-radius:999px;background:#fff;color:var(--ink);font:inherit;font-weight:800;font-style:italic;cursor:pointer;box-shadow:1px 3px 6px rgba(0,0,0,.3)}
+.out:hover{background:#F2F5F9}.out svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+/* ---- konten ---- */
+.main{min-width:0;padding:28px clamp(16px,3vw,36px) 48px}
+.topbar{display:none}
+h1{margin:0;font-family:Fredoka,"Plus Jakarta Sans",sans-serif;font-style:italic;font-weight:700;font-size:30px;line-height:1.15}
+.lead{margin:2px 0 22px;color:var(--muted)}
+.page{display:none;max-width:1000px}.page.on{display:block}
+.card{background:#fff;border:2px solid #000;border-radius:18px;padding:18px 20px;margin:0 0 16px;box-shadow:4px 4px 0 rgba(0,0,0,.9)}
+.card>h2{margin:0 0 4px;font-family:Fredoka,"Plus Jakarta Sans",sans-serif;font-style:italic;font-weight:700;font-size:20px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin:0 0 16px}
+.stat{background:var(--cream);border:2px solid #000;border-radius:18px;padding:14px 16px;box-shadow:4px 4px 0 rgba(0,0,0,.9)}
+.stat b{display:block;font-family:Fredoka,sans-serif;font-style:italic;font-size:34px;line-height:1.1}.stat span{font-size:13px;color:#5b4a1f;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:14px;margin-top:8px}td,th{padding:9px 8px;border-bottom:1px solid #E6EBF1;text-align:left;vertical-align:top}th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.tw{overflow-x:auto}
+input,select{padding:0 12px;height:42px;border:2px solid var(--line);border-radius:12px;background:#fff;font:inherit;width:100%;color:var(--ink)}
+input:hover,select:hover{border-color:#8A97A6}input:focus,select:focus{outline:none;border-color:#000;box-shadow:0 0 0 4px #FFD23F}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px}
+label{font-size:13px;font-weight:600;display:block;margin-bottom:4px}
+button.btn{height:40px;padding:0 18px;border-radius:999px;border:2px solid #000;background:var(--yellow);font:inherit;font-weight:800;font-style:italic;cursor:pointer;box-shadow:0 3px 0 #000;transition:transform .08s,box-shadow .08s}
+button.btn:active{transform:translateY(2px);box-shadow:0 1px 0 #000}
+button.s{background:#fff}button.d{background:#fff;color:var(--bad);border-color:var(--bad);box-shadow:0 3px 0 var(--bad)}
+button.sm{height:32px;padding:0 12px;font-size:13px}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.muted{color:var(--muted);font-size:13px}
+a{color:#1b5fa8;font-weight:700}code{background:#EEF2F6;border-radius:6px;padding:1px 6px}
+.bar{height:8px;border-radius:99px;background:#E6EBF1;overflow:hidden;margin-top:4px}.bar i{display:block;height:100%;background:var(--red)}
+.pill{display:inline-block;padding:2px 10px;border:1.5px solid currentColor;border-radius:999px;font-size:12px;font-weight:800}
+.ham{display:none}
+@media (max-width:860px){
+ .layout{display:block}
+ aside{position:fixed;left:0;top:0;bottom:0;width:min(82vw,290px);transform:translateX(-102%);transition:transform .22s ease;box-shadow:6px 0 24px rgba(0,0,0,.35)}
+ body.open aside{transform:none}
+ .scrim{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:25;display:none}body.open .scrim{display:block}
+ .topbar{display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:20;height:56px;padding:0 14px;background:var(--blue) url(/assets/welcome-noise.png) 0 0/402px 437px;border-bottom:2px solid #000}
+ .topbar img{height:34px;width:auto}
+ .ham{display:grid;place-items:center;width:40px;height:40px;border:1px solid #000;border-radius:12px;background:#fff;cursor:pointer}
+ .ham svg{width:22px;height:22px;stroke:#000;fill:none;stroke-width:2.4;stroke-linecap:round}
+ .main{padding:20px 14px 40px}h1{font-size:26px}
+}
+@media (prefers-reduced-motion:reduce){aside,button.btn{transition:none}}
+</style></head><body>
+<div class="topbar"><button class="ham" id="ham" aria-label="Buka menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button><img src="/assets/welcome-logo.svg" alt="POPSNAP"></div>
+<div class="scrim" id="scrim"></div>
+<div class="layout">
+<aside>
+ <img class="brand" src="/assets/welcome-logo.svg" alt="POPSNAP">
+ <p class="tag">GALERI · ADMIN</p>
+ <nav id="nav">
+  <a href="#ringkasan" data-p="ringkasan"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Ringkasan</span></a>
+  <a href="#studio" data-p="studio"><svg viewBox="0 0 24 24"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Studio</span></a>
+  <a href="#penyimpanan" data-p="penyimpanan"><svg viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 17 8.5a4.5 4.5 0 0 1 .5 9Z"/></svg><span>Penyimpanan cloud</span></a>
+  <a href="#unggah" data-p="unggah"><svg viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M4 20h16"/></svg><span>Unggah manual</span></a>
+  <a href="#pengaturan" data-p="pengaturan"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Pengaturan</span></a>
+ </nav>
+ <div class="sidefoot"><p class="who" id="who"></p><button class="out" onclick="logout()"><svg viewBox="0 0 24 24"><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4M16 8l4 4-4 4M20 12H9"/></svg>Keluar</button></div>
+</aside>
+<div class="main">
+<section class="page" id="pg-ringkasan">
+ <h1>Ringkasan</h1><p class="lead">Kondisi galeri saat ini.</p>
+ <div class="stats">
+  <div class="stat"><b id="s_sessions">–</b><span>Sesi tersimpan</span></div>
+  <div class="stat"><b id="s_files">–</b><span>File tersimpan</span></div>
+  <div class="stat"><b id="s_pending">–</b><span>Menunggu unggah</span></div>
+  <div class="stat"><b id="s_buckets">–</b><span>Bucket aktif</span></div>
+ </div>
+ <div class="card"><h2>Alamat publik</h2><p class="muted" style="margin:0 0 6px">Dipakai booth untuk membuat link foto pelanggan.</p><div id="pub" style="font-weight:700;word-break:break-all"></div></div>
+ <div class="card"><h2>Kapasitas penyimpanan</h2><div id="cap"></div></div>
+</section>
+<section class="page" id="pg-studio">
+ <h1>Studio</h1><p class="lead">Studio yang sudah mengirim foto ke galeri.</p>
+ <div class="card"><div class="tw"><table id="st"></table></div></div>
+</section>
+<section class="page" id="pg-penyimpanan">
+ <h1>Penyimpanan cloud</h1><p class="lead">S3 / Cloudflare R2 / Backblaze B2. Sesi baru ditaruh di bucket dengan nomor prioritas terkecil yang masih muat; sama prioritas = dibagi rata. Kalau satu penuh atau gagal, otomatis pindah ke yang lain.</p>
+ <div class="card"><h2>Daftar bucket</h2><div class="tw"><table id="bt"></table></div></div>
+ <div class="card" id="bform"><h2 id="ftitle">Tambah bucket</h2>
+<div class="grid" style="margin-top:10px">
 <div><label>Jenis penyimpanan</label><select id="f_kind" onchange="pickKind()"><option value="r2">Cloudflare R2</option><option value="b2">Backblaze B2</option><option value="s3">S3 lain (Wasabi, MinIO, dll.)</option></select></div>
 <div><label>Nama</label><input id="f_name" placeholder="R2 akun 1"></div>
 <div><label>Endpoint</label><input id="f_endpoint" placeholder="https://xxxx.r2.cloudflarestorage.com"></div>
@@ -30,27 +108,42 @@ button{padding:8px 14px;border-radius:8px;border:1px solid #181B23;background:#F
 <div><label>Prioritas (kecil = dipakai dulu)</label><input id="f_priority" type="number" value="10"></div>
 <div><label>Batas kapasitas GB (0 = tanpa batas)</label><input id="f_quotaGB" type="number" value="10"></div>
 <div><label>Aktif</label><select id="f_enabled"><option value="1">Ya</option><option value="0">Tidak</option></select></div>
-</div><p class="muted" id="f_hint">R2: buat bucket PRIVATE + API token "Object Read & Write". Endpoint ada di halaman R2 (S3 API). Region: auto.</p><p><button onclick="saveB()">Simpan bucket</button> <button class="s" onclick="resetF()">Batal / baru</button> <span id="fmsg"></span></p></div>
-<div class="card"><b>Unggah manual dari PC CS</b>
-<div class="muted">Dipakai kalau internet PC booth bermasalah. Dari PC CS (yang bisa membuka folder hasil booth lewat jaringan bersama), pilih folder hasil, lalu file diunggah lewat website ini ke cloud dan link-nya langsung hidup untuk pelanggan.
+</div><p class="muted" id="f_hint">R2: buat bucket PRIVATE + API token "Object Read & Write". Endpoint ada di halaman R2 (S3 API). Region: auto.</p><p style="margin:14px 0 0"><button class="btn" onclick="saveB()">Simpan bucket</button> <button class="btn s" onclick="resetF()">Batal / baru</button> <span id="fmsg"></span></p></div>
+</section>
+<section class="page" id="pg-unggah">
+ <h1>Unggah manual</h1><p class="lead">Cadangan kalau internet PC booth bermasalah.</p>
+ <div class="card"><div class="muted">Dipakai kalau internet PC booth bermasalah. Dari PC CS (yang bisa membuka folder hasil booth lewat jaringan bersama), pilih folder hasil, lalu file diunggah lewat website ini ke cloud dan link-nya langsung hidup untuk pelanggan.
 Pilih <b>folder tanggal</b> (mis. <code>2026-10-23</code>) untuk mengunggah banyak sesi sekaligus, atau satu <b>folder sesi</b>. Sesi yang sudah terunggah dilewati otomatis.</div>
 <div class="grid" style="margin-top:10px;max-width:640px">
 <div><label>Nama studio (kalau belum terbaca otomatis)</label><input id="u_studio" list="studios" placeholder="mis. Studio Emma"><datalist id="studios"></datalist></div>
-<div style="align-self:end"><button onclick="document.getElementById('u_dir').click()">Pilih folder…</button> <button class="s" onclick="document.getElementById('u_files').click()">Pilih file…</button>
+<div style="align-self:end"><button class="btn" onclick="document.getElementById('u_dir').click()">Pilih folder…</button> <button class="btn s" onclick="document.getElementById('u_files').click()">Pilih file…</button>
 <input id="u_dir" type="file" webkitdirectory multiple hidden onchange="startUpload(this.files)"><input id="u_files" type="file" multiple hidden onchange="startUpload(this.files)"></div></div>
-<p id="u_msg" class="muted"></p><table id="u_t"></table></div>
-<div class="card"><b>Studio</b><table id="st"></table></div>
-</main><script>
+
+<p id="u_msg" class="muted"></p><div class="tw"><table id="u_t"></table></div></div>
+</section>
+<section class="page" id="pg-pengaturan">
+ <h1>Pengaturan</h1><p class="lead">Aturan umum galeri.</p>
+ <div class="card"><h2>Masa simpan file</h2>
+  <div class="grid" style="margin-top:8px;max-width:440px"><div><label for="ret">Hari (file dihapus otomatis setelahnya)</label><input id="ret" type="number" min="1" max="365"></div><div style="align-self:end"><button class="btn" onclick="saveRet()">Simpan</button></div></div>
+  <p class="muted" style="margin:10px 0 0">Berlaku untuk sesi BARU. Rekomendasi: 7 atau 15 hari.</p></div>
+ <div class="card"><h2>Tombol "All … (zip)" di halaman pelanggan</h2>
+  <div style="margin-top:8px;max-width:520px"><select id="zip" onchange="saveZip()"><option value="1">ZIP — satu file berisi semua foto</option><option value="0">Tanpa ZIP — file diunduh satu per satu</option></select></div>
+  <p class="muted" style="margin:10px 0 0">ZIP praktis tapi di sebagian HP (terutama iPhone) harus dibuka dulu. Tanpa ZIP, foto langsung bisa disimpan ke galeri tapi browser mungkin meminta izin unduhan berganda. Tombol unduh per foto selalu ada.</p></div>
+</section>
+</div></div>
+<script>
 let editId=null;const $=i=>document.getElementById(i);
 const api=async(u,o)=>{const r=await fetch(u,{headers:{'Content-Type':'application/json'},...o});if(r.status===401){location.reload();return {}}return r.json()};
 async function logout(){await fetch('/admin/api/logout',{method:'POST'});location.replace('/admin')}
 async function load(){const s=await api('/admin/api/state');$('ret').value=s.retentionDays;$('zip').value=s.zipEnabled===false?'0':'1';
-$('top').textContent=`${s.stats.sessions} sesi · ${s.stats.files} file tersimpan · ${s.stats.pending} menunggu unggah · alamat publik: ${s.publicUrl||'(PUBLIC_URL belum diisi!)'}`;
-$('bt').innerHTML='<tr><th>Nama</th><th>Bucket</th><th>Prioritas</th><th>Terpakai</th><th>Status</th><th></th></tr>'+s.buckets.map(b=>`<tr><td>${b.name}</td><td>${b.bucket}<div class="muted">${b.endpoint}</div></td><td>${b.priority}</td><td>${b.usedGB} GB${b.quotaGB?' / '+b.quotaGB+' GB':''}</td><td class="${b.enabled?'ok':'bad'}">${b.enabled?'Aktif':'Nonaktif'}<div id="t${b.id}" class="muted"></div></td><td><button class="s" onclick='editB(${JSON.stringify(b)})'>Ubah</button> <button class="s" onclick="testB(${b.id})">Tes</button> <button class="d" onclick="delB(${b.id})">Hapus</button></td></tr>`).join('')||'<tr><td class="muted">Belum ada bucket. Tambahkan di bawah.</td></tr>';
+$('s_sessions').textContent=s.stats.sessions;$('s_files').textContent=s.stats.files;$('s_pending').textContent=s.stats.pending;$('s_buckets').textContent=s.buckets.filter(b=>b.enabled).length;
+$('pub').innerHTML=s.publicUrl?`<a href="${s.publicUrl}" target="_blank" rel="noopener">${s.publicUrl}</a>`:'<span class="bad">(PUBLIC_URL belum diisi di .env!)</span>';$('who').textContent=s.publicUrl?s.publicUrl.replace(/^https?:\/\//,''):'';
+$('cap').innerHTML=s.buckets.length?s.buckets.map(b=>{const pct=b.quotaGB?Math.min(100,Math.round(b.usedGB/b.quotaGB*100)):0;return `<div style="margin:10px 0"><b>${b.name}</b> <span class="muted">${b.usedGB} GB${b.quotaGB?' / '+b.quotaGB+' GB':' (tanpa batas)'}</span> <span class="pill ${b.enabled?'ok':'bad'}">${b.enabled?'Aktif':'Nonaktif'}</span>${b.quotaGB?`<div class="bar"><i style="width:${pct}%"></i></div>`:''}</div>`}).join(''):'<p class="muted">Belum ada bucket. Tambahkan di menu Penyimpanan cloud.</p>';
+$('bt').innerHTML='<tr><th>Nama</th><th>Bucket</th><th>Prioritas</th><th>Terpakai</th><th>Status</th><th></th></tr>'+s.buckets.map(b=>`<tr><td>${b.name}</td><td>${b.bucket}<div class="muted">${b.endpoint}</div></td><td>${b.priority}</td><td>${b.usedGB} GB${b.quotaGB?' / '+b.quotaGB+' GB':''}</td><td class="${b.enabled?'ok':'bad'}"><b>${b.enabled?'Aktif':'Nonaktif'}</b><div id="t${b.id}" class="muted"></div></td><td><button class="btn s sm" onclick='editB(${JSON.stringify(b)})'>Ubah</button> <button class="btn s sm" onclick="testB(${b.id})">Tes</button> <button class="btn d sm" onclick="delB(${b.id})">Hapus</button></td></tr>`).join('')||'<tr><td class="muted">Belum ada bucket. Tambahkan lewat formulir di bawah.</td></tr>';
 knownStudios=s.studios;$('studios').innerHTML=s.studios.map(x=>`<option value="${x.studio}">`).join('');$('st').innerHTML='<tr><th>Studio</th><th>Sesi</th><th>Terakhir</th></tr>'+s.studios.map(x=>`<tr><td>${x.studio}</td><td>${x.sessions}</td><td>${new Date(x.last).toLocaleString('id-ID')}</td></tr>`).join('')}
 async function saveZip(){await api('/admin/api/settings',{method:'POST',body:JSON.stringify({zipEnabled:$('zip').value})});load()}
 async function saveRet(){await api('/admin/api/settings',{method:'POST',body:JSON.stringify({retentionDays:$('ret').value})});load()}
-function editB(b){editId=b.id;$('f_kind').value=/backblazeb2\.com/.test(b.endpoint)?'b2':/r2\.cloudflarestorage\.com/.test(b.endpoint)?'r2':'s3';$('ftitle').textContent='Ubah bucket';for(const k of['name','endpoint','region','bucket','accessKey','priority','quotaGB'])$('f_'+k).value=b[k];$('f_enabled').value=b.enabled?'1':'0';$('f_secretKey').value='';$('f_sec').textContent='(kosongkan = tidak diubah)';scrollTo(0,document.body.scrollHeight)}
+function editB(b){editId=b.id;$('f_kind').value=/backblazeb2\.com/.test(b.endpoint)?'b2':/r2\.cloudflarestorage\.com/.test(b.endpoint)?'r2':'s3';$('ftitle').textContent='Ubah bucket';for(const k of['name','endpoint','region','bucket','accessKey','priority','quotaGB'])$('f_'+k).value=b[k];$('f_enabled').value=b.enabled?'1':'0';$('f_secretKey').value='';$('f_sec').textContent='(kosongkan = tidak diubah)';$('bform').scrollIntoView({behavior:'smooth',block:'start'})}
 function pickKind(){const k=$('f_kind').value;
  $('f_endpoint').placeholder=k==='r2'?'https://<ACCOUNT_ID>.r2.cloudflarestorage.com':k==='b2'?'https://s3.us-west-004.backblazeb2.com':'https://s3.contoh.com';
  $('f_region').value=k==='r2'?'auto':k==='b2'?'':$('f_region').value;$('f_region').placeholder=k==='b2'?'kosong = otomatis dari endpoint':'auto';
@@ -106,6 +199,16 @@ async function startUpload(list){
     }catch(e){r.state='✘ '+e.message}
     render(rows)}
   $('u_msg').textContent='Selesai. Link di bawah sudah bisa dibuka pelanggan.';$('u_msg').className='ok';load()}
-function render(rows){$('u_t').innerHTML='<tr><th>Sesi</th><th>File</th><th>Status</th><th>Link</th></tr>'+rows.map(r=>`<tr><td>${r.s.label}${r.s.isNew?'<div class="muted">link baru</div>':''}</td><td>${r.s.files.length}</td><td class="${r.state.startsWith('✘')?'bad':r.state.startsWith('✔')?'ok':''}">${r.state}</td><td>${r.link?`<a href="${r.link}" target="_blank">${r.link}</a> <button class="s" onclick="navigator.clipboard.writeText('${r.link}')">Salin</button>`:''}</td></tr>`).join('')}
+function render(rows){$('u_t').innerHTML='<tr><th>Sesi</th><th>File</th><th>Status</th><th>Link</th></tr>'+rows.map(r=>`<tr><td>${r.s.label}${r.s.isNew?'<div class="muted">link baru</div>':''}</td><td>${r.s.files.length}</td><td class="${r.state.startsWith('✘')?'bad':r.state.startsWith('✔')?'ok':''}">${r.state}</td><td>${r.link?`<a href="${r.link}" target="_blank">${r.link}</a> <button class="btn s sm" onclick="navigator.clipboard.writeText('${r.link}')">Salin</button>`:''}</td></tr>`).join('')}
+
+// ---- menu samping (hash: #ringkasan, #studio, #penyimpanan, #unggah, #pengaturan) ----
+const PAGES=['ringkasan','studio','penyimpanan','unggah','pengaturan'];
+function nav(){const id=PAGES.includes((location.hash||'').slice(1))?location.hash.slice(1):'ringkasan';
+ PAGES.forEach(p=>{$('pg-'+p).className='page'+(p===id?' on':'')});
+ document.querySelectorAll('#nav a').forEach(a=>{const on=a.dataset.p===id;a.className=on?'on':'';if(on)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
+ document.body.classList.remove('open');window.scrollTo(0,0);document.title='POPSNAP Galeri — '+document.querySelector('#nav a.on span').textContent}
+window.addEventListener('hashchange',nav);
+$('ham').addEventListener('click',()=>document.body.classList.toggle('open'));$('scrim').addEventListener('click',()=>document.body.classList.remove('open'));
+nav();
 load();
 </script></body></html>

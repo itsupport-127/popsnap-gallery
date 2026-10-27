@@ -1,7 +1,7 @@
 // Uji: tanda tangan SigV4 (vektor resmi AWS) + alur lengkap dengan S3 tiruan.
 process.env.DATA_DIR = require("fs").mkdtempSync(require("os").tmpdir() + "/gal-");
 process.env.STUDIO_TOKENS = "tokenstudioA0000000:Studio A,tokenstudioB0000000:Studio B";
-process.env.ADMIN_PASSWORD = "rahasia"; process.env.PUBLIC_URL = "https://foto.example.com";
+process.env.ADMIN_PASSWORD = "rahasia"; process.env.ADMIN_ALLOW_BASIC = "1"; process.env.PUBLIC_URL = "https://foto.example.com";
 const assert = require("assert"), http = require("http"), zlib = require("zlib");
 const { presignRaw } = require("../src/s3");
 
@@ -39,6 +39,25 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
   const j = async (p, o) => { const r = await fetch(base + p, o); return { status: r.status, body: await r.json().catch(() => null), r }; };
 
   assert.strictEqual((await j("/admin/api/state")).status, 401);
+  // login lewat halaman: tanpa popup Basic Auth, cookie sesi, batas percobaan
+  const lp = await fetch(`${base}/admin`); assert.strictEqual(lp.status, 401); assert(!lp.headers.get("www-authenticate"), "tidak boleh memunculkan popup Basic Auth"); assert((await lp.text()).includes("Masuk ke galeri"));
+  const JS = { "Content-Type": "application/json" };
+  assert.strictEqual((await j("/admin/api/login", { method: "POST", headers: JS, body: JSON.stringify({ username: "admin", password: "salah" }) })).status, 401);
+  const good = await fetch(`${base}/admin/api/login`, { method: "POST", headers: JS, body: JSON.stringify({ username: "admin", password: "rahasia" }) }); assert.strictEqual(good.status, 200);
+  const ck = good.headers.get("set-cookie"); assert(/HttpOnly/.test(ck) && /SameSite=Strict/.test(ck), ck);
+  const cookie = ck.split(";")[0];
+  assert.strictEqual((await j("/admin/api/state", { headers: { Cookie: cookie } })).status, 200);
+  assert.strictEqual((await fetch(`${base}/admin`, { headers: { Cookie: cookie } })).status, 200);
+  assert.strictEqual((await j("/admin/api/state", { headers: { Cookie: cookie.slice(0, -3) + "xyz" } })).status, 401, "cookie palsu harus ditolak");
+  // Basic Auth mati secara bawaan (supaya tombol Keluar efektif): dengan flag mati, kredensial Basic yang benar pun ditolak
+  process.env.ADMIN_ALLOW_BASIC = "0";
+  assert.strictEqual((await j("/admin/api/state", { headers: admin })).status, 401, "Basic harus ditolak saat ADMIN_ALLOW_BASIC bukan 1");
+  const lo = await fetch(`${base}/admin/api/logout`, { method: "POST", headers: { Cookie: cookie } }); assert(/Max-Age=0/.test(lo.headers.get("set-cookie")));
+  process.env.ADMIN_ALLOW_BASIC = "1";
+  for (let i = 0; i < 5; i++) await j("/admin/api/login", { method: "POST", headers: { ...JS, "X-Real-IP": "9.9.9.9" }, body: JSON.stringify({ username: "admin", password: "x" + i }) });
+  assert.strictEqual((await j("/admin/api/login", { method: "POST", headers: { ...JS, "X-Real-IP": "9.9.9.9" }, body: JSON.stringify({ username: "admin", password: "rahasia" }) })).status, 429, "harus terkunci setelah 5x salah");
+  assert.strictEqual((await j("/admin/api/login", { method: "POST", headers: { ...JS, "X-Real-IP": "8.8.8.8" }, body: JSON.stringify({ username: "admin", password: "rahasia" }) })).status, 200, "IP lain tidak ikut terkunci");
+  console.log("ok  login admin: halaman masuk, cookie sesi, cookie palsu ditolak, kunci 5x salah");
   assert.strictEqual((await j("/api/v1/ping", { headers: { Authorization: "Bearer salahsalahsalahsalah" } })).status, 401);
   // tanpa bucket -> 503
   assert.strictEqual((await j("/api/v1/sessions", { method: "POST", headers: A, body: JSON.stringify({ token: "abcDEF1234567890", files: [{ fid: "f", kind: "final", ext: "jpg", size: 10 }] }) })).status, 503);
@@ -68,9 +87,9 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
   console.log("ok  sesi: presign -> unggah -> konfirmasi, idempotent, isolasi studio");
 
   const html = await (await fetch(`${base}/s/${token}`)).text();
-  assert(html.includes("POPSNAP") && html.includes("Diambil di Studio A") && html.indexOf("Foto template") < html.indexOf("Foto mentah 1") && html.indexOf("Foto mentah 1") < html.indexOf("Klip foto 1"));
+  assert(html.includes("POPSNAP") && html.includes("Diambil di Studio A") && html.indexOf("Photo Frame") > 0 && html.indexOf("Photo Frame") < html.indexOf('class="card rest"') && html.includes("1 Photo") && html.includes("GIF Frame") && html.includes(`all.zip?cat=photo`) && html.includes(`all.zip?cat=live`));
   assert(html.includes("response-content-disposition"), "tombol unduh harus memaksa download");
-  console.log("ok  halaman: template di atas, mentahan di bawah, unduh paksa");
+  console.log("ok  halaman: tab GIF/Photo/Live, frame di atas, mentahan (carousel) di bawah, unduh paksa");
 
   // ZIP: validasi dengan unzip
   const zr = await fetch(`${base}/s/${token}/all.zip`); const zb = Buffer.from(await zr.arrayBuffer());
@@ -82,14 +101,19 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
   console.log("ok  ZIP streaming valid (" + ls.length + " file)");
 
   // ZIP bisa dimatikan: tombol jadi "Unduh semua" satu per satu, link ZIP ditolak
-  assert(html.includes("Unduh semua (ZIP)") && html.includes('data-t="gif"') && html.includes('data-t="live"'));
+  assert(html.includes("All Photo (zip)") && html.includes('data-t="gif"') && html.includes('data-t="live"'));
   await fetch(`${base}/admin/api/settings`, { method: "POST", headers: admin, body: JSON.stringify({ zipEnabled: "0" }) });
   const h2 = await (await fetch(`${base}/s/${token}`)).text();
-  assert(!h2.includes("all.zip") && h2.includes('id="dlall"'));
+  assert(!h2.includes("all.zip") && h2.includes('class="zipb dlall"'));
   assert.strictEqual((await fetch(`${base}/s/${token}/all.zip`)).status, 404);
   await fetch(`${base}/admin/api/settings`, { method: "POST", headers: admin, body: JSON.stringify({ zipEnabled: "1" }) });
   assert.strictEqual((await fetch(`${base}/s/${token}/all.zip`)).status, 200);
-  console.log("ok  pengaturan ZIP on/off + tab Photo/GIF/Live");
+  { // ZIP per kategori: foto = hasil template + mentahan saja (tanpa GIF/klip)
+    require("fs").writeFileSync("/tmp/gal-cat.zip", Buffer.from(await (await fetch(`${base}/s/${token}/all.zip?cat=photo`)).arrayBuffer()));
+    const names = require("child_process").spawnSync("unzip", ["-Z1", "/tmp/gal-cat.zip"], { encoding: "utf8" }).stdout.trim().split("\n");
+    assert(names.some((n) => n.includes("popsnap-foto")) && names.some((n) => n.includes("mentah")) && !names.some((n) => n.includes("gif") || n.includes("klip")), names.join(","));
+  }
+  console.log("ok  pengaturan ZIP on/off + tab Photo/GIF/Live + ZIP per kategori");
 
   // kode pendek 10 karakter: bisa diketik huruf kecil / dengan spasi-strip, halaman punya layar pembuka
   const code = "K7M29QXH4B";

@@ -7,7 +7,7 @@ const zipEnabled = () => getSetting("zip_enabled", "1") !== "0";
 const s3 = require("./s3");
 const auth = require("./auth");
 const { streamZip } = require("./zip");
-const { renderPage, landingPage, messagePage } = require("./page");
+const { renderPage, landingPage, messagePage, catFiles } = require("./page");
 
 const app = express();
 app.disable("x-powered-by");
@@ -178,9 +178,10 @@ app.get("/s/:token/all.zip", async (req, res) => {
   const s = load(req.params.token);
   if (!s) return res.status(404).type("html").send(messagePage("Link tidak ditemukan atau sudah kedaluwarsa"));
   if (!zipEnabled()) return res.status(404).type("html").send(messagePage("Unduhan ZIP dimatikan", "Unduh file satu per satu dari halaman sesi."));
-  const files = listFiles(s);
+  const cat = ["photo", "gif", "live"].includes(req.query.cat) ? req.query.cat : "";
+  const files = cat ? catFiles(listFiles(s), cat) : listFiles(s);
   if (!files.length) return res.status(404).type("html").send(messagePage("File belum tersedia"));
-  res.set({ "Content-Type": "application/zip", "Content-Disposition": 'attachment; filename="popsnap-sesi.zip"' });
+  res.set({ "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="popsnap-${cat || "sesi"}.zip"` });
   let aborted = false; res.on("close", () => { aborted = true; });
   try {
     await streamZip(res, files.map((f) => ({
@@ -191,15 +192,56 @@ app.get("/s/:token/all.zip", async (req, res) => {
 });
 
 // ---------- admin ----------
-function adminAuth(req, res, next) {
-  const pass = process.env.ADMIN_PASSWORD;
-  if (!pass) return res.status(503).send("Admin nonaktif: isi ADMIN_PASSWORD di .env");
-  const m = /^Basic (.+)$/.exec(req.headers.authorization || "");
-  const [u, p] = m ? Buffer.from(m[1], "base64").toString().split(/:(.*)/s) : ["", ""];
-  const ok = (a, b) => { const x = crypto.createHash("sha256").update(String(a)).digest(), y = crypto.createHash("sha256").update(String(b)).digest(); return crypto.timingSafeEqual(x, y); };
-  if (ok(u, process.env.ADMIN_USER || "admin") && ok(p ?? "", pass)) return next();
-  res.set("WWW-Authenticate", 'Basic realm="POPSNAP Galeri"').status(401).send("Login diperlukan");
+// Login lewat halaman (src/login.html) + cookie sesi bertanda tangan (HttpOnly, SameSite=Strict, 7 hari).
+// Mengganti ADMIN_PASSWORD otomatis mengeluarkan semua sesi lama.
+const SESSION_MS = 7 * 24 * 3600 * 1000, COOKIE = "pg_admin";
+const safeEq = (a, b) => { const x = crypto.createHash("sha256").update(String(a)).digest(), y = crypto.createHash("sha256").update(String(b)).digest(); return crypto.timingSafeEqual(x, y); };
+const sessionSig = (exp) => crypto.createHmac("sha256", crypto.createHmac("sha256", "popsnap-gallery-admin-v1").update(String(process.env.ADMIN_PASSWORD || "")).digest()).update(String(exp)).digest("base64url");
+const readCookie = (req, name) => { for (const part of String(req.headers.cookie || "").split(";")) { const i = part.indexOf("="); if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim(); } return ""; };
+function hasSession(req) {
+  const [exp, sig] = readCookie(req, COOKIE).split(".");
+  if (!/^\d{10,16}$/.test(exp || "") || Number(exp) < Date.now()) return false;
+  const a = Buffer.from(sig || ""), b = Buffer.from(sessionSig(exp));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
+// Basic Auth DIMATIKAN secara bawaan: browser menyimpan login Basic dan mengirimnya otomatis, sehingga tombol "Keluar" tidak berefek.
+// Nyalakan hanya untuk skrip/curl: ADMIN_ALLOW_BASIC=1 di .env.
+function basicOk(req) {
+  if (process.env.ADMIN_ALLOW_BASIC !== "1") return false;
+  const m = /^Basic (.+)$/.exec(req.headers.authorization || "");
+  if (!m) return false;
+  const [u, p] = Buffer.from(m[1], "base64").toString().split(/:(.*)/s);
+  return safeEq(u, process.env.ADMIN_USER || "admin") && safeEq(p ?? "", process.env.ADMIN_PASSWORD || "");
+}
+const cookieAttrs = (req) => `Path=/admin; HttpOnly; SameSite=Strict${req.secure ? "; Secure" : ""}`;
+function adminAuth(req, res, next) {
+  if (!process.env.ADMIN_PASSWORD) return res.status(503).send("Admin nonaktif: isi ADMIN_PASSWORD di .env");
+  if (hasSession(req) || basicOk(req)) return next();
+  res.set("Cache-Control", "no-store");
+  if (req.originalUrl.startsWith("/admin/api/")) return res.status(401).json({ error: "Sesi habis. Masuk lagi." });
+  res.status(401).type("html").send(fs.readFileSync(path.join(__dirname, "login.html"), "utf8"));
+}
+// Batas percobaan salah per IP: 5x salah -> dikunci 5 menit (memori saja; reset saat layanan restart).
+const loginTries = new Map();
+app.post("/admin/api/login", (req, res) => {
+  res.set("Cache-Control", "no-store");
+  if (!process.env.ADMIN_PASSWORD) return res.status(503).json({ error: "Admin nonaktif: isi ADMIN_PASSWORD di .env" });
+  const ip = String(req.headers["x-real-ip"] || req.socket.remoteAddress || "?"); // X-Real-IP diisi nginx (tidak bisa dipalsukan klien); X-Forwarded-For bisa dipalsukan
+  const t = now(), rec = loginTries.get(ip) || { n: 0, until: 0 };
+  if (loginTries.size > 500) for (const [k, v] of loginTries) if (v.until < t && !v.n) loginTries.delete(k);
+  if (rec.until > t) return res.status(429).json({ error: `Terlalu banyak percobaan. Coba lagi dalam ${Math.ceil((rec.until - t) / 60000)} menit.` });
+  const { username, password } = req.body || {};
+  if (safeEq(username ?? "", process.env.ADMIN_USER || "admin") && safeEq(password ?? "", process.env.ADMIN_PASSWORD)) {
+    loginTries.delete(ip);
+    const exp = t + SESSION_MS;
+    res.set("Set-Cookie", `${COOKIE}=${exp}.${sessionSig(exp)}; Max-Age=${SESSION_MS / 1000}; ${cookieAttrs(req)}`);
+    return res.json({ ok: true });
+  }
+  rec.n++; if (rec.n >= 5) { rec.until = t + 5 * 60000; rec.n = 0; }
+  loginTries.set(ip, rec);
+  setTimeout(() => res.status(401).json({ error: "Nama pengguna atau kata sandi salah." }), 400); // jeda kecil memperlambat tebakan
+});
+app.post("/admin/api/logout", (req, res) => { res.set("Set-Cookie", `${COOKIE}=; Max-Age=0; ${cookieAttrs(req)}`).json({ ok: true }); });
 // ---- Unggah manual dari website (PC CS memilih folder hasil dari jaringan bersama; file masuk ke cloud, link langsung hidup) ----
 app.post("/admin/api/upload/prepare", adminAuth, (req, res) => {
   const b = req.body || {};

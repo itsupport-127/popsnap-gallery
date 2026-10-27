@@ -1,12 +1,5 @@
 // Halaman unduh publik. Branding POPSNAP; nama studio kecil di bawah. Atas = hasil template/GIF/video, bawah = foto mentah & klip.
-const esc = (v) =>
-  String(v ?? "").replace(
-    /[&<>"']/g,
-    (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[
-        c
-      ],
-  );
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const isVideo = (f) => f.ext === "mp4" || f.ext === "webm";
 
 // Tema yang sama dengan app booth: biru bergradasi + tekstur grain, logo PopSnap, font Fredoka / Plus Jakarta Sans / Space Mono (file di /assets).
@@ -15,99 +8,14 @@ const THEME_CSS = `
 @font-face{font-family:"Plus Jakarta Sans";font-weight:200 800;font-style:normal;font-display:swap;src:url(/assets/jakarta.woff2) format("woff2")}
 @font-face{font-family:"Space Mono";font-weight:700;font-style:normal;font-display:swap;src:url(/assets/spacemono-700.woff2) format("woff2")}
 :root{--bg:#4082AE;--ink:#181B23;--red:#E02843;--yellow:#FFD23F;--yellow-ink:#3A2E00}
-html{background:#285068}
-body::before{content:"";position:fixed;inset:0;z-index:-1;background:url(/assets/grain.png),linear-gradient(180deg,#6EA0C1 0%,#4082AE 45%,#285068 100%)}
+html{background:#4082AE url(/assets/welcome-noise.png) 0 0/402px 437px}
 body{background:transparent;font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 .disp{font-family:Fredoka,"Plus Jakarta Sans",system-ui,sans-serif;font-weight:700;font-style:italic}
 .logo{display:block;height:34px;width:auto;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))}
 `;
 
-const CATS = [
-  {
-    id: "photo",
-    label: "Photo",
-    top: (f) => f.kind === "final",
-    rest: (f) => f.group === "raw",
-    restTitle: "Foto mentah (belum masuk template)",
-  },
-  {
-    id: "gif",
-    label: "GIF",
-    top: (f) => f.kind === "gif",
-    rest: (f) => f.kind === "gifplain",
-    restTitle: "GIF polos (tanpa template)",
-  },
-  {
-    id: "live",
-    label: "Live",
-    top: (f) => ["live", "video", "boomerang"].includes(f.kind),
-    rest: (f) => f.group === "clips",
-    restTitle: "Klip mentah per foto",
-  },
-];
-
-// zip = true: tombol "Unduh semua" mengunduh satu file ZIP. zip = false: semua file diunduh satu per satu (tanpa ZIP).
-function renderPage({ files, studio, token, preparing, daysLeft, zip = true }) {
-  const media = (f, big) =>
-    isVideo(f)
-      ? `<video src="${esc(f.url)}" ${big ? "autoplay muted loop" : ""} controls playsinline preload="metadata"></video>`
-      : `<img src="${esc(f.url)}" alt="${esc(f.label)}" loading="lazy">`;
-  const card = (f, big) => `<section class="card${big ? " big" : ""}">
-  <div class="media">${media(f, big)}</div>
-  <div class="row"><b>${esc(f.label)}</b><a class="btn" href="${esc(f.dl)}" download="${esc(f.name)}">Unduh</a></div>
-</section>`;
-  const cats = CATS.map((c) => ({
-    ...c,
-    tops: files.filter(c.top),
-    rests: files.filter(c.rest),
-  })).filter((c) => c.tops.length || c.rests.length);
-  const allBtn = files.length
-    ? zip
-      ? `<a class="all" href="/s/${esc(token)}/all.zip">⬇ Unduh semua (ZIP)</a>`
-      : `<button class="all" type="button" id="dlall">⬇ Unduh semua</button><p class="hint" id="dlmsg"></p>`
-    : "";
-  const panels = cats
-    .map(
-      (c) => `<div class="panel" id="p-${c.id}">
-${c.tops.map((f, i) => card(f, true)).join("\n")}
-${allBtn}
-${c.rests.length ? `<h2>${esc(c.restTitle)}</h2><div class="grid">${c.rests.map((f) => card(f, false)).join("\n")}</div>` : ""}
-</div>`,
-    )
-    .join("\n");
-  const nav =
-    cats.length > 1
-      ? `<nav>${cats.map((c) => `<a href="#${c.id}" data-t="${c.id}">${esc(c.label)}</a>`).join("")}</nav>`
-      : "";
-  const codeShown = /^[A-Z0-9]{10}$/.test(token)
-    ? `${token.slice(0, 4)} ${token.slice(4, 8)} ${token.slice(8)}`
-    : token;
-  const dl = JSON.stringify(files.map((f) => ({ u: f.dl, n: f.name }))).replace(
-    /</g,
-    "\\u003c",
-  );
-  return `<!doctype html>
-<html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
-<title>POPSNAP — File kamu</title><link rel="icon" href="/assets/icon-popsnap.ico">
-<style>${THEME_CSS}
-*{box-sizing:border-box}body{margin:0;color:var(--ink)}
-header.bar{position:sticky;top:0;z-index:10;background:rgba(64,130,174,.28);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
-header.bar .in{max-width:640px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px}
-nav{display:flex;gap:6px}nav a{font-family:Fredoka,sans-serif;font-style:italic;color:#fff;text-decoration:none;font-weight:700;font-size:15px;padding:7px 16px;border-radius:999px;border:2px solid rgba(255,255,255,.55);background:rgba(255,255,255,.12)}
-nav a.on{background:#fff;color:var(--ink);border-color:#000}
-main{max-width:640px;margin:0 auto;padding:12px 16px 40px}
-.panel{display:grid;gap:14px}.js .panel{display:none}.js .panel.on{display:grid}
-.card{background:#fff;border:2px solid #000;border-radius:18px;overflow:hidden}
-.media{background:#f2f2f2;display:flex;justify-content:center}.media img,.media video{display:block;max-width:100%;max-height:70vh}
-.row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px}
-.btn{font-family:Fredoka,sans-serif;font-style:italic;background:var(--red);color:#fff;text-decoration:none;font-weight:700;padding:9px 18px;border-radius:999px;border:2px solid #000;white-space:nowrap}
-.all{font-family:Fredoka,sans-serif;font-style:italic;display:block;width:100%;text-align:center;background:var(--yellow);color:var(--yellow-ink);font-weight:700;font-size:18px;text-decoration:none;padding:14px;border-radius:999px;border:2px solid #000;cursor:pointer;font-family:inherit}
-.hint{margin:6px 0 0;color:#fff;font-size:13px;text-align:center}
-h2{font-family:Fredoka,sans-serif;font-style:italic;font-weight:700;margin:8px 0 0;color:#fff;font-size:18px}.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
-.grid .card .row{padding:8px 10px;flex-direction:column;align-items:stretch;text-align:center}.grid .btn{text-align:center;padding:7px}
-.note{color:#fff;text-align:center;font-size:13px;opacity:.95}
-#intro{display:none}
+// Layar pembuka "Get your files" (desain Welcome_screen).
+const introCss = `#intro{display:none}
 .gate #intro{display:grid;place-items:center;position:fixed;inset:0;z-index:50;overflow:hidden;background:#4082AE url(/assets/welcome-noise.png) 0 0/402px 437px repeat;min-height:100vh;min-height:100dvh}
 .gate header.bar,.gate main,.gate footer{display:none}
 #intro .deco{position:absolute;pointer-events:none;height:auto}
@@ -121,42 +29,136 @@ h2{font-family:Fredoka,sans-serif;font-style:italic;font-weight:700;margin:8px 0
 #go img{display:block;width:100%;height:auto;pointer-events:none}
 #go:active{transform:scale(.96)}
 #go:focus-visible{outline:4px solid var(--yellow);outline-offset:3px}
-@media (prefers-reduced-motion:reduce){#go{display:block;padding:0;border:0;background:transparent;cursor:pointer;width:clamp(170px,44vw,240px);transition:transform .12s ease}
-#go img{display:block;width:100%;height:auto;pointer-events:none}
-.code{font-family:"Space Mono",monospace;font-weight:700;letter-spacing:.06em;background:rgba(255,255,255,.18);border-radius:8px;padding:2px 8px}
-footer{text-align:center;color:#fff;opacity:.85;font-size:12px;padding-bottom:24px;line-height:1.6}
-</style></head><body>
-<section id="intro" aria-label="POPSNAP">
+@media (prefers-reduced-motion:reduce){#go{transition:none}}
+`;
+const introHtml = `<section id="intro" aria-label="POPSNAP">
 <img class="deco tl" src="/assets/welcome-tl.svg" alt="" width="130" height="302">
 <img class="deco tr" src="/assets/welcome-tr.svg" alt="" width="262" height="209">
 <img class="deco bl" src="/assets/welcome-bl.svg" alt="" width="160" height="189">
 <img class="deco br" src="/assets/welcome-br.svg" alt="" width="313" height="371">
 <div class="mid"><img class="wl" src="/assets/welcome-logo.svg" alt="POPSNAP" width="184" height="62"><button id="go" type="button" aria-label="Get your files"><img src="/assets/welcome-btn.svg" alt="Get your files" width="156" height="46"></button></div>
-</section>
-<header class="bar"><div class="in"><img class="logo" src="/assets/logo.png" alt="POPSNAP">${nav}</div></header>
+</section>`;
+
+// Urutan tab mengikuti desain: GIF, Photo, Live.
+const CATS = [
+  { id: "gif", label: "GIF", frame: "GIF Frame", raw: "GIF", all: "All Gif", one: "1 Gif", top: (f) => f.kind === "gif", rest: (f) => f.kind === "gifplain" },
+  { id: "photo", label: "Photo", frame: "Photo Frame", raw: "Photo", all: "All Photo", one: "1 Photo", top: (f) => f.kind === "final", rest: (f) => f.group === "raw" },
+  { id: "live", label: "Live", frame: "Live frame", raw: "Live", all: "All Live", one: "1 Live", top: (f) => ["live", "video", "boomerang"].includes(f.kind), rest: (f) => f.group === "clips" },
+];
+/** File satu kategori (hasil template + mentahannya) — dipakai tombol "All ... (zip)" dan ?cat= di all.zip. */
+const catFiles = (files, id) => { const c = CATS.find((x) => x.id === id); return c ? files.filter((f) => c.top(f) || c.rest(f)) : files; };
+
+const DL_ICON = `<img src="/assets/dl.svg" alt="" width="20" height="22">`;
+const PAGE_CSS = `
+*{box-sizing:border-box}body{margin:0;color:#000}
+.wrap{container-type:inline-size;max-width:480px;margin:0 auto}
+.pg{--u:calc(100cqw / 402);padding-bottom:calc(var(--u) * 24)}
+header.bar{position:sticky;top:0;z-index:10;height:calc(var(--u) * 43);background:rgba(255,255,255,.1);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-radius:0 0 calc(var(--u) * 25) calc(var(--u) * 25)}
+nav{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;height:100%}
+nav a{position:relative;display:flex;align-items:center;justify-content:center;color:#fff;text-decoration:none;font-weight:800;font-style:italic;font-size:calc(var(--u) * 20);letter-spacing:.01em}
+nav a+a::before{content:"";position:absolute;left:0;top:calc(var(--u) * 10);height:calc(var(--u) * 26);border-left:.5px solid #8DBFE8}
+nav a img{display:none;position:absolute;z-index:-1;left:calc(-5 / 134 * 100% * 3 / var(--n,3));top:calc(var(--u) * 2);width:calc(147 / 134 * 100% * 3 / var(--n,3));height:calc(var(--u) * 51);pointer-events:none}
+nav a.on img{display:block}
+nav a img.flip{transform:scaleX(-1)}
+nav a span{position:relative}
+.mlogo{display:block;width:calc(var(--u) * 70);height:auto;margin:calc(var(--u) * 23) auto calc(var(--u) * 25);filter:drop-shadow(0 1px 2px rgba(0,0,0,.25))}
+.panel{display:block}.js .panel{display:none}.js .panel.on{display:block}
+.card{position:relative;margin:0 calc(var(--u) * 14);padding:calc(var(--u) * 43) calc(var(--u) * 14) calc(var(--u) * 16.5);background:#FDB939;border:1px solid #000;border-radius:calc(var(--u) * 41);box-shadow:3px 4px 4px rgba(0,0,0,.2)}
+.card+.card{margin-top:calc(var(--u) * 40)}
+.lab{position:absolute;left:50%;top:calc(var(--u) * 9);transform:translateX(-50%);height:calc(var(--u) * 28);padding:0 calc(var(--u) * 19);display:flex;align-items:center;background:#FFEAC5;border:1px solid #000;border-radius:999px;font-weight:800;font-style:italic;font-size:calc(var(--u) * 17);white-space:nowrap;line-height:1}
+.cnt{position:absolute;right:calc(var(--u) * 24);top:calc(var(--u) * 9);height:calc(var(--u) * 28);min-width:calc(var(--u) * 46);padding:0 calc(var(--u) * 12);display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid #000;border-radius:999px;font-weight:800;font-style:italic;font-size:calc(var(--u) * 15);line-height:1;white-space:nowrap;font-variant-numeric:tabular-nums}
+.cnt b{font-weight:800}
+.frame{position:relative;overflow:hidden;background:#fff;border:1px solid #000;border-radius:calc(var(--u) * 19)}
+.frame::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 2px 1px 6.5px rgba(88,88,88,.44);pointer-events:none}
+.frame img,.frame video{display:block;width:100%;height:auto}
+.slide{display:none}.slide.on,.nojs .slide:first-child{display:block}
+.act{display:flex;justify-content:center;align-items:center;gap:calc(var(--u) * 16.5);margin-top:calc(var(--u) * 14.5)}
+.dlp{display:inline-flex;align-items:center;justify-content:center;gap:calc(var(--u) * 21);height:calc(var(--u) * 33);min-width:calc(var(--u) * 51);padding:0 calc(var(--u) * 15);background:#fff;border:1px solid #000;border-radius:999px;color:#000;text-decoration:none;font-weight:800;font-size:calc(var(--u) * 19);line-height:1;white-space:nowrap;cursor:pointer;transition:transform .12s ease}
+.dlp.wide{min-width:calc(var(--u) * 127)}
+.dlp img{display:block;width:calc(var(--u) * 20);height:auto}
+.dlp:active,.arr:active,.zipb:active{transform:scale(.96)}
+.arr{position:relative;flex:none;width:calc(var(--u) * 33);height:calc(var(--u) * 33);padding:0;border:0;background:none;cursor:pointer;transition:transform .12s ease}
+.arr img{position:absolute;left:calc(var(--u) * -6.3);top:calc(var(--u) * -2.3);width:calc(var(--u) * 47.6);height:auto;pointer-events:none}
+.arr.prev{transform:scaleX(-1)}.arr.prev:active{transform:scaleX(-1) scale(.96)}
+.zipb{display:flex;align-items:center;justify-content:center;gap:calc(var(--u) * 6);width:calc(var(--u) * 111);height:calc(var(--u) * 23);margin:calc(var(--u) * 12.5) auto 0;padding:0;background:#fff;border:1px solid #000;border-radius:999px;color:#000;text-decoration:none;font-family:inherit;font-weight:800;font-size:calc(var(--u) * 12.5);line-height:1;white-space:nowrap;cursor:pointer;transition:transform .12s ease}
+.zipb img{width:calc(var(--u) * 11);height:auto}
+.zipb[disabled]{opacity:.6}
+.hint{margin:6px 0 0;color:#fff;font-size:13px;text-align:center}
+.note{color:#fff;text-align:center;font-size:13px;margin:16px 14px 0}
+.code{font-family:"Space Mono",monospace;font-weight:700;letter-spacing:.06em;background:rgba(255,255,255,.18);border-radius:8px;padding:2px 8px}
+footer{text-align:center;color:#fff;opacity:.9;font-size:12px;padding:calc(var(--u) * 20) 16px 0;line-height:1.6}
+`;
+
+// zip = true: tombol "All ... (zip)" mengunduh ZIP kategori itu. zip = false: file diunduh satu per satu (tanpa ZIP).
+function renderPage({ files, studio, token, preparing, daysLeft, zip = true }) {
+  const media = (f, big) => isVideo(f)
+    ? `<video src="${esc(f.url)}" ${big ? "autoplay muted loop" : ""} controls playsinline preload="${big ? "auto" : "none"}"></video>`
+    : `<img src="${esc(f.url)}" alt="${esc(f.label)}" ${big ? "" : 'loading="lazy"'}>`;
+  const topCard = (c, f) => `<section class="card"><span class="lab">${esc(c.frame)}</span>
+  <div class="frame">${media(f, true)}</div>
+  <div class="act"><a class="dlp" href="${esc(f.dl)}" download="${esc(f.name)}" aria-label="Unduh ${esc(c.frame)}">${DL_ICON}</a></div>
+</section>`;
+  const restCard = (c, rs) => {
+    const many = rs.length > 1, f0 = rs[0];
+    return `<section class="card rest" data-n="${rs.length}"><span class="lab">${esc(c.raw)}</span>${many ? `<span class="cnt" aria-live="polite"><b>1</b>/${rs.length}</span>` : ""}
+  <div class="frame">${rs.map((f, i) => `<div class="slide${i ? "" : " on"}" data-dl="${esc(f.dl)}" data-name="${esc(f.name)}">${media(f, false)}</div>`).join("")}</div>
+  <div class="act">${many ? `<button class="arr prev" type="button" aria-label="Sebelumnya"><img src="/assets/arrow.svg" alt=""></button>` : ""}<a class="dlp${many ? " wide" : ""}" href="${esc(f0.dl)}" download="${esc(f0.name)}" aria-label="Unduh ${esc(c.one)}">${DL_ICON}${many ? `<span>${esc(c.one)}</span>` : ""}</a>${many ? `<button class="arr next" type="button" aria-label="Berikutnya"><img src="/assets/arrow.svg" alt=""></button>` : ""}</div>
+</section>`;
+  };
+  const cats = CATS.map((c) => ({ ...c, tops: files.filter(c.top), rests: files.filter(c.rest) })).filter((c) => c.tops.length || c.rests.length);
+  const panels = cats.map((c) => {
+    const all = catFiles(files, c.id);
+    const zipBtn = zip
+      ? `<a class="zipb" href="/s/${esc(token)}/all.zip?cat=${c.id}">${DL_ICON}<span>${esc(c.all)} (zip)</span></a>`
+      : `<button class="zipb dlall" type="button">${DL_ICON}<span>${esc(c.all)}</span></button><p class="hint"></p>`;
+    return `<div class="panel" id="p-${c.id}" data-all='${esc(JSON.stringify(all.map((f) => ({ u: f.dl, n: f.name }))))}'>
+${c.tops.map((f) => topCard(c, f)).join("\n")}
+${c.rests.length ? restCard(c, c.rests) : ""}
+${all.length ? zipBtn : ""}
+</div>`;
+  }).join("\n");
+  const nav = cats.length > 1 ? `<nav style="--n:${cats.length}">${cats.map((c, i) => `<a href="#${c.id}" data-t="${c.id}"><img src="/assets/${i === 0 || i === cats.length - 1 ? "tab-pill" : "tab-pill-mid"}.svg" alt=""${i > 0 && i === cats.length - 1 ? ' class="flip"' : ""}><span>${esc(c.label)}</span></a>`).join("")}</nav>` : "";
+  const codeShown = /^[A-Z0-9]{10}$/.test(token) ? `${token.slice(0, 4)} ${token.slice(4, 8)} ${token.slice(8)}` : token;
+  const firstCat = cats.find((c) => c.id === "photo") ? "photo" : cats[0]?.id || "photo";
+  return `<!doctype html>
+<html lang="id" class="nojs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
+<title>POPSNAP — File kamu</title><link rel="icon" href="/assets/icon-popsnap.ico">
+<style>${THEME_CSS}
+${PAGE_CSS}
+${introCss}</style></head><body>
+${introHtml}
+<div class="wrap"><div class="pg">
+<header class="bar">${nav}</header>
+<img class="mlogo" src="/assets/logo.png" alt="POPSNAP">
 <main>
 ${panels}
 ${preparing ? `<p class="note" id="prep">File masih diunggah — halaman ini memperbarui sendiri.</p>` : ""}
 ${!files.length ? `<p class="note">File belum tersedia, sedang diunggah dari booth. Halaman memuat ulang sendiri.</p>` : ""}
 </main>
 <footer>${studio ? `Diambil di ${esc(studio)}<br>` : ""}Kode: <span class="code">${esc(codeShown)}</span><br>Link berlaku ${daysLeft > 0 ? `sekitar ${daysLeft} hari lagi` : "sementara"}. Simpan filenya ke galeri kamu.</footer>
+</div></div>
 <script>
 (function(){
-var DL=${dl};
-document.documentElement.className+=' js';
+var de=document.documentElement;de.className=de.className.replace('nojs','js');
 var K='ps-open-'+${JSON.stringify(token)},opened=false;try{opened=!!sessionStorage.getItem(K)}catch(x){}
-if(!opened&&!/^#(photo|gif|live)$/.test(location.hash))document.documentElement.className+=' gate';
-document.getElementById('go').addEventListener('click',function(){try{sessionStorage.setItem(K,'1')}catch(x){}document.documentElement.className=document.documentElement.className.replace(' gate','');window.scrollTo(0,0)});
+if(!opened&&!/^#(photo|gif|live)$/.test(location.hash))de.className+=' gate';
+document.getElementById('go').addEventListener('click',function(){try{sessionStorage.setItem(K,'1')}catch(x){}de.className=de.className.replace(' gate','');window.scrollTo(0,0)});
 var tabs=[].slice.call(document.querySelectorAll('nav a')),panels=[].slice.call(document.querySelectorAll('.panel'));
 function show(id){var f=false;panels.forEach(function(p){var on=p.id==='p-'+id;if(on)f=true;p.className='panel'+(on?' on':'')});
  if(!f&&panels[0]){id=panels[0].id.slice(2);panels[0].className='panel on'}
  tabs.forEach(function(a){a.className=a.getAttribute('data-t')===id?'on':''});window.scrollTo(0,0)}
 tabs.forEach(function(a){a.addEventListener('click',function(e){e.preventDefault();var id=a.getAttribute('data-t');try{history.replaceState(null,'','#'+id)}catch(x){}show(id)})});
-show((location.hash||'').slice(1)||'photo');
-var b=document.getElementById('dlall');
-if(b)b.addEventListener('click',function(){var i=0,m=document.getElementById('dlmsg');b.disabled=true;
+show((location.hash||'').slice(1)||${JSON.stringify(firstCat)});
+[].forEach.call(document.querySelectorAll('.rest'),function(c){
+ var s=[].slice.call(c.querySelectorAll('.slide')),dl=c.querySelector('.dlp'),cn=c.querySelector('.cnt'),i=0;
+ function go(d){s[i].className='slide';i=(i+d+s.length)%s.length;var e=s[i];e.className='slide on';if(cn)cn.textContent=(i+1)+'/'+s.length;dl.href=e.getAttribute('data-dl');dl.setAttribute('download',e.getAttribute('data-name'));
+  [].forEach.call(s,function(x){var v=x.querySelector('video');if(v&&x!==e)v.pause()})}
+ var p=c.querySelector('.prev'),n=c.querySelector('.next');if(p)p.addEventListener('click',function(){go(-1)});if(n)n.addEventListener('click',function(){go(1)})});
+[].forEach.call(document.querySelectorAll('.dlall'),function(b){b.addEventListener('click',function(){
+ var DL=JSON.parse(b.closest('.panel').getAttribute('data-all')),m=b.parentNode.querySelector('.hint'),i=0;b.disabled=true;
  (function next(){if(i>=DL.length){m.textContent='Selesai. Cek folder unduhan. Jika ada yang tidak terunduh, izinkan unduhan berganda lalu coba lagi.';b.disabled=false;return}
-  m.textContent='Mengunduh '+(i+1)+' / '+DL.length+'…';var a=document.createElement('a');a.href=DL[i].u;a.download=DL[i].n;document.body.appendChild(a);a.click();a.remove();i++;setTimeout(next,900)})()});
+  m.textContent='Mengunduh '+(i+1)+' / '+DL.length+'…';var a=document.createElement('a');a.href=DL[i].u;a.download=DL[i].n;document.body.appendChild(a);a.click();a.remove();i++;setTimeout(next,900)})()})});
 var n=${files.length},tries=0,t=setInterval(function(){
  if(++tries>${preparing || !files.length ? 40 : 0}){clearInterval(t);var p=document.getElementById('prep');if(p)p.remove();return}
  fetch('/s/${esc(token)}/files.json',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){if(d.count!==n||d.pending===0&&${preparing ? "true" : "false"}){clearInterval(t);location.reload()}}).catch(function(){})},4000)})();
@@ -170,7 +172,7 @@ function landingPage() {
 <meta name="robots" content="noindex"><title>POPSNAP — Unduh foto kamu</title><link rel="icon" href="/assets/icon-popsnap.ico">
 <style>${THEME_CSS}
 *{box-sizing:border-box}body{margin:0;color:#fff}
-header{position:sticky;top:0;background:rgba(64,130,174,.28);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
+header{position:sticky;top:0;z-index:10;background:none;pointer-events:none}
 header .in{max-width:760px;margin:0 auto;padding:12px 16px}
 main{max-width:760px;margin:0 auto;padding:28px 16px 40px;text-align:center}
 h1{font-family:Fredoka,sans-serif;font-style:italic;font-size:38px;line-height:1.08;margin:22px 0 10px;font-weight:700}p.sub{font-size:16px;opacity:.95;margin:0 auto 22px;max-width:520px}
@@ -184,7 +186,7 @@ footer{text-align:center;opacity:.85;font-size:12px;padding:0 16px 28px;line-hei
 </style></head><body>
 <header><div class="in"><img class="logo" src="/assets/logo.png" alt="POPSNAP"></div></header>
 <main>
-<h1>Foto kamu sudah siap! 🎉</h1>
+<h1>Foto kamu sudah siap!</h1>
 <p class="sub">Scan QR di booth untuk membuka halaman fotomu. Kalau QR-nya tidak terbaca, tempel link atau kode dari booth di bawah ini.</p>
 <form id="f"><input id="c" placeholder="Ketik kode atau tempel link (mis. K7M2 9QXH 4B)" autocomplete="off" autocapitalize="off"><button type="submit">Buka</button></form>
 <div class="err" id="e"></div>
@@ -202,10 +204,7 @@ document.getElementById('f').addEventListener('submit',function(e){e.preventDefa
 </script></body></html>`;
 }
 
-const messagePage = (
-  title,
-  sub = "",
-) => `<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>POPSNAP</title></head>
+const messagePage = (title, sub = "") => `<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>POPSNAP</title></head>
 <style>${THEME_CSS}</style><body style="color:#fff;text-align:center;padding:48px 20px"><img class="logo" style="margin:0 auto 16px" src="/assets/logo.png" alt="POPSNAP"><h2>${esc(title)}</h2><p>${esc(sub)}</p></body></html>`;
 
-module.exports = { renderPage, landingPage, messagePage, esc };
+module.exports = { renderPage, landingPage, messagePage, esc, catFiles };
