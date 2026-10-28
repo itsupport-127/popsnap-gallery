@@ -11,10 +11,15 @@ async function streamZip(out, entries) {
   const central = [];
   let offset = 0, count = 0;
   const write = async (buf) => { offset += buf.length; if (!out.write(buf)) await new Promise((r) => out.once("drain", r)); };
-  for (const e of entries) {
-    let resp;
-    try { resp = await e.open(); } catch { continue; }
-    if (!resp || !resp.ok || !resp.body) continue;
+  // Buka permintaan ke cloud untuk 2 file berikutnya selagi file sekarang dikirim: tidak ada jeda tunggu antar file.
+  const pre = new Map();
+  const ahead = (i) => { if (i < entries.length && !pre.has(i)) { const pr = Promise.resolve().then(() => entries[i].open()).catch(() => null); pr.catch(() => {}); pre.set(i, pr); } };
+  ahead(0); ahead(1);
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i];
+    ahead(i + 1); ahead(i + 2);
+    const resp = await pre.get(i); pre.delete(i);
+    if (!resp || !resp.ok || !resp.body) { try { resp?.body?.cancel(); } catch { /* sudah tertutup */ } continue; }
     const name = Buffer.from(e.name, "utf8");
     const start = offset;
     const lh = Buffer.alloc(30);
@@ -39,4 +44,11 @@ async function streamZip(out, entries) {
   return count;
 }
 
-module.exports = { streamZip };
+/** Ukuran ZIP pasti (STORE, data descriptor) bila semua ukuran file diketahui: browser bisa menampilkan progres & sisa waktu. */
+function zipSize(items) {
+  let n = 22;
+  for (const it of items) { const nl = Buffer.byteLength(it.name, "utf8"); n += 30 + nl + it.size + 16 + 46 + nl; }
+  return n;
+}
+
+module.exports = { streamZip, zipSize };

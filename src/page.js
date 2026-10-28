@@ -8,7 +8,7 @@ const THEME_CSS = `
 @font-face{font-family:"Plus Jakarta Sans";font-weight:200 800;font-style:normal;font-display:swap;src:url(/assets/jakarta.woff2) format("woff2")}
 @font-face{font-family:"Space Mono";font-weight:700;font-style:normal;font-display:swap;src:url(/assets/spacemono-700.woff2) format("woff2")}
 :root{--bg:#4082AE;--ink:#181B23;--red:#E02843;--yellow:#FFD23F;--yellow-ink:#3A2E00}
-html{background:#4082AE url(/assets/welcome-noise.png) 0 0/402px 437px}
+html{background:#4082AE url(/assets/welcome-noise.webp) 0 0/402px 437px}
 body{background:transparent;font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 .disp{font-family:Fredoka,"Plus Jakarta Sans",system-ui,sans-serif;font-weight:700;font-style:italic}
 .logo{display:block;height:34px;width:auto;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))}
@@ -16,16 +16,18 @@ body{background:transparent;font-family:"Plus Jakarta Sans",system-ui,-apple-sys
 
 // Layar pembuka "Get your files" (desain Welcome_screen).
 const introCss = `#intro{display:none}
-.gate #intro{display:grid;place-items:center;position:fixed;inset:0;z-index:50;overflow:hidden;background:#4082AE url(/assets/welcome-noise.png) 0 0/402px 437px repeat;min-height:100vh;min-height:100dvh}
+.gate #intro{display:grid;place-items:center;position:fixed;inset:0;z-index:50;overflow:hidden;background:#4082AE url(/assets/welcome-noise.webp) 0 0/402px 437px repeat;min-height:100vh;min-height:100dvh}
 .gate header.bar,.gate main,.gate footer{display:none}
+#intro{container-type:size}
+#intro>*{--ud:calc(min(100cqw, 100cqh * .575) / 402);--uc:calc(min(100cqw, 100cqh * .8, 700px) / 402)}
 #intro .deco{position:absolute;pointer-events:none;height:auto}
-#intro .tl{top:0;left:0;width:min(32.3vw,160px)}
-#intro .tr{top:0;right:0;width:min(65vw,330px)}
-#intro .bl{bottom:0;left:0;width:min(39.8vw,200px)}
-#intro .br{bottom:0;right:0;width:min(78vw,390px)}
-#intro .mid{position:relative;display:flex;flex-direction:column;align-items:center;gap:6px;padding:24px 20px}
-#intro .mid .wl{width:min(45.8vw,240px);height:auto}
-#go{display:block;padding:0;border:0;background:transparent;cursor:pointer;width:clamp(170px,44vw,240px);transition:transform .12s ease}
+#intro .tl{top:0;left:0;width:calc(var(--ud) * 130)}
+#intro .tr{top:0;right:0;width:calc(var(--ud) * 262)}
+#intro .bl{bottom:0;left:0;width:calc(var(--ud) * 160)}
+#intro .br{bottom:0;right:0;width:calc(var(--ud) * 313)}
+#intro .mid{position:relative;display:flex;flex-direction:column;align-items:center;gap:calc(var(--uc) * 6);padding:calc(var(--uc) * 24) calc(var(--uc) * 20)}
+#intro .mid .wl{width:calc(var(--uc) * 184);height:auto}
+#go{display:block;padding:0;border:0;background:transparent;cursor:pointer;width:calc(var(--uc) * 176);transition:transform .12s ease}
 #go img{display:block;width:100%;height:auto;pointer-events:none}
 #go:active{transform:scale(.96)}
 #go:focus-visible{outline:4px solid var(--yellow);outline-offset:3px}
@@ -51,7 +53,8 @@ const catFiles = (files, id) => { const c = CATS.find((x) => x.id === id); retur
 const DL_ICON = `<img src="/assets/dl.svg" alt="" width="20" height="22">`;
 const PAGE_CSS = `
 *{box-sizing:border-box}body{margin:0;color:#000}
-.wrap{container-type:inline-size;max-width:480px;margin:0 auto}
+.wrap{container-type:inline-size;max-width:560px;margin:0 auto;overflow-x:clip}
+@media (min-width:561px){.wrap{min-height:100vh;min-height:100dvh}}
 .pg{--u:calc(100cqw / 402);min-height:100vh;min-height:100dvh;display:flex;flex-direction:column}
 .pg main{flex:1 0 auto}
 header.bar{position:sticky;top:0;z-index:10;height:calc(var(--u) * 43);background:rgba(255,255,255,.1);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-radius:0 0 calc(var(--u) * 25) calc(var(--u) * 25)}
@@ -72,6 +75,11 @@ nav a span{position:relative}
 .frame{position:relative;overflow:hidden;background:#fff;border:1px solid #000;border-radius:calc(var(--u) * 19)}
 .frame::after{content:"";position:absolute;inset:0;border-radius:inherit;box-shadow:inset 2px 1px 6.5px rgba(88,88,88,.44);pointer-events:none}
 .frame img,.frame video{display:block;width:100%;height:auto}
+.frame{min-height:calc(var(--u) * 180);background:linear-gradient(100deg,#fff 30%,#f1f1f1 50%,#fff 70%) 0 0/200% 100%;animation:shim 1.3s linear infinite}
+.frame:has(img.ok),.frame:has(video){animation:none;background:#fff}
+.frame img{opacity:0;transition:opacity .25s}.frame img.ok,.nojs .frame img{opacity:1}
+@keyframes shim{to{background-position:-200% 0}}
+@media (prefers-reduced-motion:reduce){.frame{animation:none}}
 .frz{position:absolute;left:0;top:0;width:100%;height:100%;display:block}
 .pp{position:absolute;left:calc(var(--u) * 10);bottom:calc(var(--u) * 10);z-index:3;width:calc(var(--u) * 36);height:calc(var(--u) * 36);min-width:32px;min-height:32px;padding:0;display:grid;place-items:center;border:1px solid #000;border-radius:50%;background:rgba(255,255,255,.92);color:#000;cursor:pointer;box-shadow:0 2px 5px rgba(0,0,0,.3)}
 .pp[hidden]{display:none}.pp svg{width:55%;height:55%;fill:none;stroke:currentColor;stroke-width:2.8;stroke-linecap:round;stroke-linejoin:round}
@@ -85,13 +93,13 @@ nav a span{position:relative}
 .arr{position:relative;flex:none;width:calc(var(--u) * 33);height:calc(var(--u) * 33);padding:0;border:0;background:none;cursor:pointer;transition:transform .12s ease}
 .arr img{position:absolute;left:calc(var(--u) * -6.3);top:calc(var(--u) * -2.3);width:calc(var(--u) * 47.6);height:auto;pointer-events:none}
 .arr.prev{transform:scaleX(-1)}.arr.prev:active{transform:scaleX(-1) scale(.96)}
-.zipb{display:flex;align-items:center;justify-content:center;gap:calc(var(--u) * 6);width:calc(var(--u) * 111);height:calc(var(--u) * 23);margin:calc(var(--u) * 12.5) auto 0;padding:0;background:#fff;border:1px solid #000;border-radius:999px;color:#000;text-decoration:none;font-family:inherit;font-weight:800;font-size:calc(var(--u) * 12.5);line-height:1;white-space:nowrap;cursor:pointer;transition:transform .12s ease}
+.zipb{display:flex;align-items:center;justify-content:center;gap:calc(var(--u) * 6);min-width:calc(var(--u) * 111);width:max-content;height:calc(var(--u) * 23);margin:calc(var(--u) * 12.5) auto 0;padding:0 calc(var(--u) * 14);background:#fff;border:1px solid #000;border-radius:999px;color:#000;text-decoration:none;font-family:inherit;font-weight:800;font-size:calc(var(--u) * 12.5);line-height:1;white-space:nowrap;cursor:pointer;transition:transform .12s ease}
 .zipb img{width:calc(var(--u) * 11);height:auto}
 .zipb[disabled]{opacity:.6}
 .hint{margin:6px 0 0;color:#fff;font-size:13px;text-align:center}
 .note{color:#fff;text-align:center;font-size:13px;margin:16px 14px 0}
 .code{font-family:"Space Mono",monospace;font-weight:700;letter-spacing:.06em;background:rgba(255,255,255,.18);border-radius:8px;padding:2px 8px}
-footer{text-align:center;color:#fff;opacity:.9;font-size:12px;padding:calc(var(--u) * 20) 16px 0;line-height:1.6;position:relative;z-index:1}
+footer{text-align:center;color:#fff;opacity:.9;font-size:max(12px,calc(var(--u) * 12));padding:calc(var(--u) * 20) 16px 0;line-height:1.6;position:relative;z-index:1}
 .mascot{position:relative;width:100%;aspect-ratio:1080/750;margin-top:calc(var(--u) * -34);overflow:hidden;pointer-events:none;user-select:none;-webkit-user-select:none}
 .mascot video,.mascot img{display:block;width:100%;height:100%;object-fit:contain}
 .gate .mascot{display:none}
@@ -102,7 +110,7 @@ footer{text-align:center;color:#fff;opacity:.9;font-size:12px;padding:calc(var(-
 function renderPage({ files, studio, token, preparing, daysLeft, zip = true }) {
   const media = (f, big) => isVideo(f)
     ? `<video src="${esc(f.url)}" data-m="v" muted loop playsinline disablepictureinpicture preload="${big ? "auto" : "metadata"}"></video>`
-    : `<img src="${esc(f.url)}" alt="${esc(f.label)}"${f.ext === "gif" ? ' data-m="g"' : ""} ${big ? "" : 'loading="lazy"'}>`;
+    : `<img src="${esc(f.ext === "gif" ? f.url : f.thumb || f.url)}" alt="${esc(f.label)}"${f.ext === "gif" ? ' data-m="g"' : ""} decoding="async" ${big || f.thumb ? "" : 'loading="lazy"'} onload="this.classList.add('ok')" onerror="this.classList.add('ok')">`;
   const topCard = (c, f) => `<section class="card"><span class="lab">${esc(c.frame)}</span>
   <div class="frame">${media(f, true)}</div>
   <div class="act"><a class="dlp" href="${esc(f.dl)}" download="${esc(f.name)}" aria-label="Unduh ${esc(c.frame)}">${DL_ICON}</a></div>
@@ -117,9 +125,9 @@ function renderPage({ files, studio, token, preparing, daysLeft, zip = true }) {
   const cats = CATS.map((c) => ({ ...c, tops: files.filter(c.top), rests: files.filter(c.rest) })).filter((c) => c.tops.length || c.rests.length);
   const panels = cats.map((c) => {
     const all = catFiles(files, c.id);
-    const zipBtn = zip
-      ? `<a class="zipb" href="/s/${esc(token)}/all.zip?cat=${c.id}">${DL_ICON}<span>${esc(c.all)} (zip)</span></a>`
-      : `<button class="zipb dlall" type="button">${DL_ICON}<span>${esc(c.all)}</span></button><p class="hint"></p>`;
+    const zipLink = `<a class="zipb" href="/s/${esc(token)}/all.zip?cat=${c.id}">${DL_ICON}<span>${esc(c.all)} (zip)</span></a>`;
+    const filesBtn = (label) => `<button class="zipb dlall" type="button">${DL_ICON}<span>${esc(label)}</span></button><p class="hint"></p>`;
+    const zipBtn = zip === "both" ? zipLink + filesBtn("Unduh semua file") : zip ? zipLink : filesBtn(c.all);
     return `<div class="panel" id="p-${c.id}" data-all='${esc(JSON.stringify(all.map((f) => ({ u: f.dl, n: f.name }))))}'>
 ${c.tops.map((f) => topCard(c, f)).join("\n")}
 ${c.rests.length ? restCard(c, c.rests) : ""}
@@ -128,11 +136,12 @@ ${all.length ? zipBtn : ""}
   }).join("\n");
   const nav = cats.length > 1 ? `<nav style="--n:${cats.length}">${cats.map((c, i) => `<a href="#${c.id}" data-t="${c.id}"><img src="/assets/${i === 0 || i === cats.length - 1 ? "tab-pill" : "tab-pill-mid"}.svg" alt=""${i > 0 && i === cats.length - 1 ? ' class="flip"' : ""}><span>${esc(c.label)}</span></a>`).join("")}</nav>` : "";
   const codeShown = /^[A-Z0-9]{10}$/.test(token) ? `${token.slice(0, 4)} ${token.slice(4, 8)} ${token.slice(8)}` : token;
+  let origin = ""; try { origin = new URL(files.find((f) => f.url)?.url || "").origin; } catch { /* tanpa file */ }
   const firstCat = cats.find((c) => c.id === "photo") ? "photo" : cats[0]?.id || "photo";
   return `<!doctype html>
 <html lang="id" class="nojs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
-<title>POPSNAP — File kamu</title><link rel="icon" href="/assets/icon-popsnap.ico">
+<title>POPSNAP — File kamu</title><link rel="preload" as="image" href="/assets/welcome-noise.webp">${origin ? `<link rel="preconnect" href="${esc(origin)}" crossorigin>` : ""}<link rel="icon" href="/assets/icon-popsnap.ico">
 <style>${THEME_CSS}
 ${PAGE_CSS}
 ${introCss}</style></head><body>
@@ -150,7 +159,7 @@ ${!files.length ? `<p class="note">File belum tersedia, sedang diunggah dari boo
 </div></div>
 <script>
 (function(){
-var de=document.documentElement;de.className=de.className.replace('nojs','js');
+var de=document.documentElement;de.className=de.className.replace('nojs','js');setTimeout(function(){[].forEach.call(document.querySelectorAll('.frame img'),function(m){m.classList.add('ok')})},6000);addEventListener('DOMContentLoaded',function(){[].forEach.call(document.querySelectorAll('.frame img'),function(m){if(m.complete)m.classList.add('ok')})});
 var K='ps-open-'+${JSON.stringify(token)},opened=false;try{opened=!!sessionStorage.getItem(K)}catch(x){}
 if(!opened&&!/^#(photo|gif|live)$/.test(location.hash))de.className+=' gate';
 document.getElementById('go').addEventListener('click',function(){try{sessionStorage.setItem(K,'1')}catch(x){}de.className=de.className.replace(' gate','');window.scrollTo(0,0)});
@@ -184,13 +193,15 @@ show((location.hash||'').slice(1)||${JSON.stringify(firstCat)});
 })();
 [].forEach.call(document.querySelectorAll('.rest'),function(c){
  var s=[].slice.call(c.querySelectorAll('.slide')),dl=c.querySelector('.dlp'),cn=c.querySelector('.cnt'),i=0;
+ function warm(k){var x=s[(k+s.length)%s.length],m=x&&x.querySelector('img');if(m&&m.loading==='lazy')m.loading='eager'}
+ warm(1);warm(-1);
  function go(d){s[i].className='slide';i=(i+d+s.length)%s.length;var e=s[i];e.className='slide on';if(cn)cn.textContent=(i+1)+'/'+s.length;dl.href=e.getAttribute('data-dl');dl.setAttribute('download',e.getAttribute('data-name'));
-  [].forEach.call(s,function(x){var v=x.querySelector('video');if(v&&x!==e)v.pause()});if(window.__pp)window.__pp(c.querySelector('.frame'))}
+  [].forEach.call(s,function(x){var v=x.querySelector('video');if(v&&x!==e)v.pause()});if(window.__pp)window.__pp(c.querySelector('.frame'));warm(i+1);warm(i-1)}
  var p=c.querySelector('.prev'),n=c.querySelector('.next');if(p)p.addEventListener('click',function(){go(-1)});if(n)n.addEventListener('click',function(){go(1)})});
 [].forEach.call(document.querySelectorAll('.dlall'),function(b){b.addEventListener('click',function(){
  var DL=JSON.parse(b.closest('.panel').getAttribute('data-all')),m=b.parentNode.querySelector('.hint'),i=0;b.disabled=true;
  (function next(){if(i>=DL.length){m.textContent='Selesai. Cek folder unduhan. Jika ada yang tidak terunduh, izinkan unduhan berganda lalu coba lagi.';b.disabled=false;return}
-  m.textContent='Mengunduh '+(i+1)+' / '+DL.length+'…';var a=document.createElement('a');a.href=DL[i].u;a.download=DL[i].n;document.body.appendChild(a);a.click();a.remove();i++;setTimeout(next,900)})()})});
+  m.textContent='Mengunduh '+(i+1)+' / '+DL.length+'…';var a=document.createElement('a');a.href=DL[i].u;a.download=DL[i].n;document.body.appendChild(a);a.click();a.remove();i++;setTimeout(next,450)})()})});
 (function(){var box=document.getElementById('mascot');if(!box||(window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches))return;
  var ua=navigator.userAgent,webkit=/iPhone|iPad|iPod/.test(ua)||(/Safari/.test(ua)&&!/Chrome|Chromium|Android|Edg|OPR/.test(ua)),el=null;
  function asImg(){box.innerHTML='';el=document.createElement('img');el.alt='';el.decoding='async';el.src='/assets/animasi-maskot.webp';box.appendChild(el)}
@@ -223,6 +234,8 @@ button{font-family:Fredoka,sans-serif;font-style:italic;background:var(--yellow)
 .step{background:#fff;color:var(--ink);border:2px solid #000;border-radius:18px;padding:16px}.step b{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--red);color:#fff;margin-bottom:8px}
 .step h3{font-family:Fredoka,sans-serif;font-style:italic;margin:0 0 4px;font-size:18px}.step p{margin:0;font-size:14px;color:#44505E}
 footer{text-align:center;opacity:.85;font-size:12px;padding:0 16px 28px;line-height:1.6}
+@media (min-width:700px){header .in{max-width:1000px}.logo{height:44px}main{max-width:920px;padding-top:56px}h1{font-size:54px}p.sub{font-size:19px;max-width:620px}form{max-width:640px}input{height:58px;font-size:18px}button{font-size:21px;padding:0 30px}.step h3{font-size:21px}.step p{font-size:16px}footer{font-size:14px}}
+@media (max-height:480px) and (orientation:landscape){main{padding-top:12px}h1{font-size:30px;margin-top:6px}}
 </style></head><body>
 <header><div class="in"><img class="logo" src="/assets/logo.png" alt="POPSNAP"></div></header>
 <main>
@@ -244,7 +257,12 @@ document.getElementById('f').addEventListener('submit',function(e){e.preventDefa
 </script></body></html>`;
 }
 
-const messagePage = (title, sub = "") => `<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>POPSNAP</title></head>
-<style>${THEME_CSS}</style><body style="color:#fff;text-align:center;padding:48px 20px"><img class="logo" style="margin:0 auto 16px" src="/assets/logo.png" alt="POPSNAP"><h2>${esc(title)}</h2><p>${esc(sub)}</p></body></html>`;
+const messagePage = (title, sub = "") => `<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>POPSNAP</title><link rel="icon" href="/assets/icon-popsnap.ico">
+<style>${THEME_CSS}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:24px 20px;color:#fff;text-align:center}
+.msg{width:min(100%,520px)}.msg .logo{height:clamp(34px,9vw,52px);margin:0 auto 18px}
+h2{font-family:Fredoka,"Plus Jakarta Sans",sans-serif;font-style:italic;font-weight:700;font-size:clamp(24px,6vw,36px);line-height:1.2;margin:0 0 8px}
+p{margin:0;font-size:clamp(15px,3.6vw,18px);opacity:.95}
+</style></head><body><div class="msg"><img class="logo" src="/assets/logo.png" alt="POPSNAP"><h2>${esc(title)}</h2><p>${esc(sub)}</p></div></body></html>`;
 
 module.exports = { renderPage, landingPage, messagePage, esc, catFiles };

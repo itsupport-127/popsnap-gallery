@@ -91,8 +91,37 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
   assert(html.includes("response-content-disposition"), "tombol unduh harus memaksa download");
   console.log("ok  halaman: tab GIF/Photo/Live, frame di atas, mentahan (carousel) di bawah, unduh paksa");
 
+  // thumbnail: file palsu (bukan gambar) -> dialihkan ke file asli; JPEG asli -> thumbnail kecil dan di-cache
+  assert(html.includes(`/s/${token}/t/final`) && html.includes(`/s/${token}/t/r1`), "halaman memakai URL thumbnail");
+  assert(!/<img src="[^"]*gif[^"]*t\/gif/.test(html) && !html.includes(`/t/gif`), "GIF tidak diberi thumbnail");
+  const tfake = await fetch(`${base}/s/${token}/t/r1`, { redirect: "manual" });
+  assert.strictEqual(tfake.status, 302); assert(tfake.headers.get("location").includes("X-Amz-Signature"));
+  assert.strictEqual((await fetch(`${base}/s/${token}/t/nope`)).status, 404);
+  assert.strictEqual((await fetch(`${base}/s/ZZZZnotfound12345/t/r1`)).status, 404);
+  let sharpOk = true; try { require("sharp"); } catch { sharpOk = false; }
+  if (sharpOk) {
+    const sharp = require("sharp");
+    const big = await sharp({ create: { width: 3000, height: 2000, channels: 3, background: { r: 200, g: 40, b: 40 } } }).jpeg({ quality: 95 }).toBuffer();
+    const tk = "Thumb12345678abc";
+    const pr0 = await j("/api/v1/sessions", { method: "POST", headers: A, body: JSON.stringify({ token: tk, studioCode: "ABC", files: [{ fid: "final", kind: "final", ext: "jpg", size: big.length }] }) });
+    assert.strictEqual(pr0.status, 200);
+    assert((await fetch(pr0.body.uploads[0].url, { method: "PUT", body: big })).ok);
+    assert((await j(`/api/v1/sessions/${tk}/done`, { method: "POST", headers: A, body: JSON.stringify({ fid: "final" }) })).body.ok);
+    const t1 = await fetch(`${base}/s/${tk}/t/final`); const tb = Buffer.from(await t1.arrayBuffer());
+    assert.strictEqual(t1.status, 200); assert.strictEqual(t1.headers.get("content-type"), "image/jpeg"); assert(/max-age=86400/.test(t1.headers.get("cache-control")));
+    const meta = await sharp(tb).metadata(); assert.strictEqual(meta.width, 1200); assert(tb.length < big.length / 3, `thumbnail ${tb.length} vs ${big.length}`);
+    assert.strictEqual((await fetch(`${base}/s/${tk}/t/final`)).status, 200);
+    const urlA = (await (await fetch(`${base}/s/${tk}`)).text()).match(/href="(https?:[^"]*response-content-disposition[^"]*)"/)[1];
+    const urlB = (await (await fetch(`${base}/s/${tk}`)).text()).match(/href="(https?:[^"]*response-content-disposition[^"]*)"/)[1];
+    assert.strictEqual(urlA, urlB, "URL unduh harus stabil antar muat ulang");
+    await j(`/api/v1/sessions/${tk}`, { method: "DELETE", headers: A });
+    assert.strictEqual((await fetch(`${base}/s/${tk}/t/final`)).status, 404);
+  }
+  console.log("ok  thumbnail: redirect untuk file bukan gambar, 1200px + cache untuk JPEG, URL stabil, hilang saat sesi dihapus");
+
   // ZIP: validasi dengan unzip
   const zr = await fetch(`${base}/s/${token}/all.zip`); const zb = Buffer.from(await zr.arrayBuffer());
+  if (zr.headers.get("content-length")) assert.strictEqual(Number(zr.headers.get("content-length")), zb.length, "Content-Length ZIP harus pas");
   require("fs").writeFileSync("/tmp/gal-test.zip", zb);
   const out = require("child_process").spawnSync("unzip", ["-t", "/tmp/gal-test.zip"], { encoding: "utf8" });
   assert(/No errors detected/.test(out.stdout), out.stdout + out.stderr);
@@ -106,6 +135,11 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
   const h2 = await (await fetch(`${base}/s/${token}`)).text();
   assert(!h2.includes("all.zip") && h2.includes('class="zipb dlall"'));
   assert.strictEqual((await fetch(`${base}/s/${token}/all.zip`)).status, 404);
+  await fetch(`${base}/admin/api/settings`, { method: "POST", headers: admin, body: JSON.stringify({ zipEnabled: "2" }) });
+  const h3 = await (await fetch(`${base}/s/${token}`)).text();
+  assert(h3.includes("all.zip?cat=photo") && h3.includes("Unduh semua file") && h3.includes('class="zipb dlall"'), "mode keduanya: ZIP + unduh semua file");
+  assert.strictEqual((await fetch(`${base}/s/${token}/all.zip`)).status, 200);
+  assert.strictEqual((await j("/admin/api/state", { headers: admin })).body.zipMode, "2");
   await fetch(`${base}/admin/api/settings`, { method: "POST", headers: admin, body: JSON.stringify({ zipEnabled: "1" }) });
   assert.strictEqual((await fetch(`${base}/s/${token}/all.zip`)).status, 200);
   { // ZIP per kategori: foto = hasil template + mentahan saja (tanpa GIF/klip)

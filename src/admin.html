@@ -8,7 +8,7 @@ html{background:#EAF1F7}
 body{margin:0;min-height:100vh;font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);font-size:15px;line-height:1.5}
 .layout{display:grid;grid-template-columns:var(--side) 1fr;min-height:100vh}
 /* ---- sidebar ---- */
-aside{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;padding:22px 16px 18px;background:var(--blue) url(/assets/welcome-noise.png) 0 0/402px 437px;border-right:2px solid #000;z-index:30;overflow:auto}
+aside{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;padding:22px 16px 18px;background:var(--blue) url(/assets/welcome-noise.webp) 0 0/402px 437px;border-right:2px solid #000;z-index:30;overflow:auto}
 .brand{display:block;margin:0 auto 4px;width:168px;height:auto;filter:drop-shadow(0 2px 3px rgba(0,0,0,.25))}
 .tag{margin:0 0 18px;text-align:center;color:#fff;font-style:italic;font-weight:800;font-size:13px;letter-spacing:.04em;text-shadow:0 1px 2px rgba(0,0,0,.35)}
 nav{display:flex;flex-direction:column;gap:6px}
@@ -54,7 +54,7 @@ a{color:#1b5fa8;font-weight:700}code{background:#EEF2F6;border-radius:6px;paddin
  aside{position:fixed;left:0;top:0;bottom:0;width:min(82vw,290px);transform:translateX(-102%);transition:transform .22s ease;box-shadow:6px 0 24px rgba(0,0,0,.35)}
  body.open aside{transform:none}
  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:25;display:none}body.open .scrim{display:block}
- .topbar{display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:20;height:56px;padding:0 14px;background:var(--blue) url(/assets/welcome-noise.png) 0 0/402px 437px;border-bottom:2px solid #000}
+ .topbar{display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:20;height:56px;padding:0 14px;background:var(--blue) url(/assets/welcome-noise.webp) 0 0/402px 437px;border-bottom:2px solid #000}
  .topbar img{height:34px;width:auto}
  .ham{display:grid;place-items:center;width:40px;height:40px;border:1px solid #000;border-radius:12px;background:#fff;cursor:pointer}
  .ham svg{width:22px;height:22px;stroke:#000;fill:none;stroke-width:2.4;stroke-linecap:round}
@@ -127,15 +127,15 @@ Pilih <b>folder tanggal</b> (mis. <code>2026-10-23</code>) untuk mengunggah bany
   <div class="grid" style="margin-top:8px;max-width:440px"><div><label for="ret">Hari (file dihapus otomatis setelahnya)</label><input id="ret" type="number" min="1" max="365"></div><div style="align-self:end"><button class="btn" onclick="saveRet()">Simpan</button></div></div>
   <p class="muted" style="margin:10px 0 0">Berlaku untuk sesi BARU. Rekomendasi: 7 atau 15 hari.</p></div>
  <div class="card"><h2>Tombol "All … (zip)" di halaman pelanggan</h2>
-  <div style="margin-top:8px;max-width:520px"><select id="zip" onchange="saveZip()"><option value="1">ZIP — satu file berisi semua foto</option><option value="0">Tanpa ZIP — file diunduh satu per satu</option></select></div>
-  <p class="muted" style="margin:10px 0 0">ZIP praktis tapi di sebagian HP (terutama iPhone) harus dibuka dulu. Tanpa ZIP, foto langsung bisa disimpan ke galeri tapi browser mungkin meminta izin unduhan berganda. Tombol unduh per foto selalu ada.</p></div>
+  <div style="margin-top:8px;max-width:520px"><select id="zip" onchange="saveZip()"><option value="1">ZIP — satu file berisi semua foto</option><option value="0">Tanpa ZIP — file diunduh satu per satu</option><option value="2">Keduanya — tombol ZIP dan tombol "Unduh semua file"</option></select></div>
+  <p class="muted" style="margin:10px 0 0">ZIP praktis tapi di sebagian HP (terutama iPhone) harus dibuka dulu. Tanpa ZIP, foto langsung bisa disimpan ke galeri tapi browser mungkin meminta izin unduhan berganda. "Keduanya" menampilkan dua tombol: ZIP, dan "Unduh semua file" yang mengunduh langsung dari cloud (tidak lewat server). Tombol unduh per foto selalu ada.</p></div>
 </section>
 </div></div>
 <script>
 let editId=null;const $=i=>document.getElementById(i);
 const api=async(u,o)=>{const r=await fetch(u,{headers:{'Content-Type':'application/json'},...o});if(r.status===401){location.reload();return {}}return r.json()};
 async function logout(){await fetch('/admin/api/logout',{method:'POST'});location.replace('/admin')}
-async function load(){const s=await api('/admin/api/state');$('ret').value=s.retentionDays;$('zip').value=s.zipEnabled===false?'0':'1';
+async function load(){const s=await api('/admin/api/state');$('ret').value=s.retentionDays;$('zip').value=s.zipMode||(s.zipEnabled===false?'0':'1');
 $('s_sessions').textContent=s.stats.sessions;$('s_files').textContent=s.stats.files;$('s_pending').textContent=s.stats.pending;$('s_buckets').textContent=s.buckets.filter(b=>b.enabled).length;
 $('pub').innerHTML=s.publicUrl?`<a href="${s.publicUrl}" target="_blank" rel="noopener">${s.publicUrl}</a>`:'<span class="bad">(PUBLIC_URL belum diisi di .env!)</span>';$('who').textContent=s.publicUrl?s.publicUrl.replace(/^https?:\/\//,''):'';
 $('cap').innerHTML=s.buckets.length?s.buckets.map(b=>{const pct=b.quotaGB?Math.min(100,Math.round(b.usedGB/b.quotaGB*100)):0;return `<div style="margin:10px 0"><b>${b.name}</b> <span class="muted">${b.usedGB} GB${b.quotaGB?' / '+b.quotaGB+' GB':' (tanpa batas)'}</span> <span class="pill ${b.enabled?'ok':'bad'}">${b.enabled?'Aktif':'Nonaktif'}</span>${b.quotaGB?`<div class="bar"><i style="width:${pct}%"></i></div>`:''}</div>`}).join(''):'<p class="muted">Belum ada bucket. Tambahkan di menu Penyimpanan cloud.</p>';

@@ -2,11 +2,12 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
-const { db, getSetting, setSetting, retentionDays } = require("./db");
+const { db, getSetting, setSetting, retentionDays, DATA_DIR } = require("./db");
 const zipEnabled = () => getSetting("zip_enabled", "1") !== "0";
+const zipMode = () => { const v = getSetting("zip_enabled", "1"); return v === "0" ? "0" : v === "2" ? "2" : "1"; }; // 1 = ZIP, 0 = tanpa ZIP, 2 = keduanya
 const s3 = require("./s3");
 const auth = require("./auth");
-const { streamZip } = require("./zip");
+const { streamZip, zipSize } = require("./zip");
 const { renderPage, landingPage, messagePage, catFiles } = require("./page");
 
 const app = express();
@@ -120,6 +121,7 @@ app.post("/api/v1/sessions/:token/done", async (req, res) => {
     const len = Number(r.headers.get("content-length")) || row.size;
     db.prepare("UPDATE files SET state = 'ok', size = ?, uploaded_at = ? WHERE id = ?").run(len, now(), row.id);
     db.prepare("UPDATE sessions SET last_file_at = ? WHERE token = ?").run(now(), row.token);
+    warmThumb(row);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -148,16 +150,61 @@ const load = (token) => {
   if (!s || s.expires_at < now()) return null;
   return s;
 };
+// Waktu tanda tangan dibulatkan ke jam: URL sama dalam 1 jam => browser memakai cache (pindah tab/refresh tidak mengunduh ulang).
+const stableNow = () => new Date(Math.floor(Date.now() / 3600000) * 3600000);
 function listFiles(s, { presignUrls = true } = {}) {
+  const T = stableNow();
   const rows = db.prepare("SELECT * FROM files WHERE token = ? AND state = 'ok'").all(s.token);
   return rows.map((r) => {
     const K = KINDS[r.kind], b = bucketById(r.bucket_id);
     const name = `${K.name(r.idx)}.${r.ext}`;
     return { ...r, group: K.group, rank: K.rank, label: K.label(r.idx), name, b,
-      url: presignUrls && b ? s3.presign(b, "GET", r.key, { expires: 7200, query: { "response-content-type": EXTS[r.ext] } }) : null,
-      dl: presignUrls && b ? s3.presign(b, "GET", r.key, { expires: 7200, query: { "response-content-disposition": `attachment; filename="${name}"` } }) : null };
+      url: presignUrls && b ? s3.presign(b, "GET", r.key, { expires: 14400, now: T, query: { "response-content-type": EXTS[r.ext], "response-cache-control": "private, max-age=3600" } }) : null,
+      thumb: THUMBABLE(r) ? `/s/${s.token}/t/${r.fid}` : null,
+      dl: presignUrls && b ? s3.presign(b, "GET", r.key, { expires: 14400, now: T, query: { "response-content-disposition": `attachment; filename="${name}"` } }) : null };
   }).sort((a, b) => a.rank - b.rank || a.idx - b.idx);
 }
+
+
+// ---------- thumbnail (cepat tampil) ----------
+// Foto asli dari kamera/template bisa beberapa MB. Halaman memakai versi ~1200px (progresif) yang dibuat sekali lalu disimpan di VPS;
+// tombol unduh tetap file asli. Kalau sharp tidak ada / gagal, otomatis dialihkan ke file asli (tidak pernah merusak halaman).
+let sharp = null;
+try { sharp = require("sharp"); sharp.cache(false); sharp.concurrency(1); } catch { /* opsional */ }
+const THUMB_DIR = path.join(DATA_DIR, "thumbs");
+const thumbPath = (token, fid) => path.join(THUMB_DIR, token, `${fid}.jpg`);
+const thumbJobs = new Map();
+function makeThumb(row) {
+  if (!sharp || !["jpg", "jpeg", "png"].includes(row.ext)) return Promise.resolve(null);
+  const out = thumbPath(row.token, row.fid);
+  if (fs.existsSync(out)) return Promise.resolve(out);
+  if (thumbJobs.has(out)) return thumbJobs.get(out);
+  const job = (async () => {
+    const b = bucketById(row.bucket_id); if (!b) return null;
+    const r = await s3.call(b, "GET", row.key, { timeoutMs: 60000 });
+    if (!r.ok) return null;
+    const buf = Buffer.from(await r.arrayBuffer());
+    const img = await sharp(buf, { failOn: "none" }).rotate().resize({ width: 1200, withoutEnlargement: true }).flatten({ background: "#ffffff" }).jpeg({ quality: 85, progressive: true, mozjpeg: true }).toBuffer();
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    const tmp = `${out}.${process.pid}.tmp`; fs.writeFileSync(tmp, img); fs.renameSync(tmp, out);
+    return out;
+  })().catch((e) => { console.error("[thumb]", e.message); return null; }).finally(() => thumbJobs.delete(out));
+  thumbJobs.set(out, job);
+  return job;
+}
+const warmThumb = (row) => { if (row) setImmediate(() => makeThumb(row).catch(() => {})); };
+const THUMBABLE = (r) => !!sharp && ["jpg", "jpeg", "png"].includes(r.ext);
+app.get("/s/:token/t/:fid", async (req, res) => {
+  const s = load(req.params.token);
+  if (!s) return res.status(404).end();
+  const row = db.prepare("SELECT * FROM files WHERE token = ? AND fid = ? AND state = 'ok'").get(s.token, safe(req.params.fid, 30));
+  if (!row) return res.status(404).end();
+  const out = await makeThumb(row);
+  if (out) return res.set({ "Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" }).type("image/jpeg").sendFile(out);
+  const b = bucketById(row.bucket_id);
+  if (!b) return res.status(404).end();
+  res.set("Cache-Control", "no-store").redirect(302, s3.presign(b, "GET", row.key, { expires: 3600, query: { "response-content-type": EXTS[row.ext] } }));
+});
 
 app.get("/s/:token", (req, res) => {
   noStore(res);
@@ -165,7 +212,7 @@ app.get("/s/:token", (req, res) => {
   if (!s) return res.status(404).type("html").send(messagePage("Link tidak ditemukan atau sudah kedaluwarsa", "Hasil foto disimpan sementara."));
   const files = listFiles(s);
   const preparing = now() - s.created_at < 3 * 60 * 1000 || db.prepare("SELECT COUNT(*) n FROM files WHERE token = ? AND state = 'pending'").get(s.token).n > 0;
-  res.type("html").send(renderPage({ files, studio: s.studio, token: s.token, preparing, daysLeft: Math.ceil((s.expires_at - now()) / 86400000), zip: zipEnabled() }));
+  res.type("html").send(renderPage({ files, studio: s.studio, token: s.token, preparing, daysLeft: Math.ceil((s.expires_at - now()) / 86400000), zip: zipMode() === "2" ? "both" : zipEnabled() }));
 });
 app.get("/s/:token/files.json", (req, res) => {
   noStore(res);
@@ -183,11 +230,12 @@ app.get("/s/:token/all.zip", async (req, res) => {
   if (!files.length) return res.status(404).type("html").send(messagePage("File belum tersedia"));
   res.set({ "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="popsnap-${cat || "sesi"}.zip"` });
   let aborted = false; res.on("close", () => { aborted = true; });
+  const items = files.map((f) => ({ f, name: f.group === "clips" ? `klip/${f.name}` : f.group === "raw" ? `foto-mentah/${f.name}` : f.name, size: Number(f.size) || 0 }));
+  const exact = items.every((x) => x.size > 0);
+  if (exact) res.set("Content-Length", String(zipSize(items)));
   try {
-    await streamZip(res, files.map((f) => ({
-      name: f.group === "clips" ? `klip/${f.name}` : f.group === "raw" ? `foto-mentah/${f.name}` : f.name,
-      open: async () => (aborted ? null : s3.call(f.b, "GET", f.key, { timeoutMs: 120000 })),
-    })));
+    const n = await streamZip(res, items.map((x) => ({ name: x.name, open: async () => (aborted ? null : s3.call(x.f.b, "GET", x.f.key, { timeoutMs: 120000 })) })));
+    if (exact && n !== items.length) res.destroy(); // ada file gagal diambil: putuskan supaya unduhan ditandai gagal, bukan ZIP tidak lengkap
   } catch (e) { console.error("[zip]", e.message); try { res.destroy(); } catch { /* sudah putus */ } }
 });
 
@@ -264,6 +312,7 @@ app.put("/admin/api/upload/:token/:fid", adminAuth, async (req, res) => {
     if (!put.ok) return res.status(502).json({ error: `Cloud menolak unggahan (HTTP ${put.status}).` });
     db.prepare("UPDATE files SET state = 'ok', size = ?, uploaded_at = ? WHERE id = ?").run(len, now(), row.id);
     db.prepare("UPDATE sessions SET last_file_at = ? WHERE token = ?").run(now(), row.token);
+    warmThumb(row);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.name === "AbortError" ? "Unggahan terlalu lama (timeout)." : e.message }); }
 });
@@ -272,7 +321,7 @@ app.get("/admin", adminAuth, (_req, res) => res.type("html").send(fs.readFileSyn
 app.get("/admin/api/state", adminAuth, (_req, res) => {
   const used = usedBytes();
   res.json({
-    retentionDays: retentionDays(), zipEnabled: zipEnabled(), publicUrl: PUBLIC_URL(),
+    retentionDays: retentionDays(), zipEnabled: zipEnabled(), zipMode: zipMode(), publicUrl: PUBLIC_URL(),
     buckets: db.prepare("SELECT * FROM buckets ORDER BY priority, id").all().map((b) => maskB(b, used)),
     stats: { sessions: db.prepare("SELECT COUNT(*) n FROM sessions").get().n, files: db.prepare("SELECT COUNT(*) n FROM files WHERE state = 'ok'").get().n, pending: db.prepare("SELECT COUNT(*) n FROM files WHERE state = 'pending'").get().n },
     studios: db.prepare("SELECT studio, MAX(studio_code) code, COUNT(*) sessions, MAX(created_at) last FROM sessions GROUP BY studio ORDER BY last DESC").all(),
@@ -280,7 +329,7 @@ app.get("/admin/api/state", adminAuth, (_req, res) => {
 });
 app.post("/admin/api/settings", adminAuth, (req, res) => {
   if (req.body?.retentionDays != null) setSetting("retention_days", Math.max(1, Math.min(365, Math.round(Number(req.body.retentionDays) || 7))));
-  if (req.body?.zipEnabled != null) setSetting("zip_enabled", req.body.zipEnabled === false || req.body.zipEnabled === "0" || req.body.zipEnabled === 0 ? "0" : "1");
+  if (req.body?.zipEnabled != null) { const z = req.body.zipEnabled; setSetting("zip_enabled", z === false || z === "0" || z === 0 ? "0" : String(z) === "2" ? "2" : "1"); }
   res.json({ ok: true });
 });
 app.post("/admin/api/buckets", adminAuth, (req, res) => {
@@ -329,7 +378,7 @@ async function purgeSession(token) {
     try { const r = await s3.call(b, "DELETE", f.key, { timeoutMs: 15000 }); if (r.ok || r.status === 404) db.prepare("DELETE FROM files WHERE id = ?").run(f.id); else allGone = false; }
     catch { allGone = false; }
   }
-  if (allGone) db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+  if (allGone) { db.prepare("DELETE FROM sessions WHERE token = ?").run(token); try { fs.rmSync(path.join(THUMB_DIR, String(token)), { recursive: true, force: true }); } catch { /* sudah tidak ada */ } }
   return allGone;
 }
 
