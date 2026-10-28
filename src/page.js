@@ -52,7 +52,8 @@ const DL_ICON = `<img src="/assets/dl.svg" alt="" width="20" height="22">`;
 const PAGE_CSS = `
 *{box-sizing:border-box}body{margin:0;color:#000}
 .wrap{container-type:inline-size;max-width:480px;margin:0 auto}
-.pg{--u:calc(100cqw / 402);padding-bottom:calc(var(--u) * 24)}
+.pg{--u:calc(100cqw / 402);min-height:100vh;min-height:100dvh;display:flex;flex-direction:column}
+.pg main{flex:1 0 auto}
 header.bar{position:sticky;top:0;z-index:10;height:calc(var(--u) * 43);background:rgba(255,255,255,.1);-webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);border-radius:0 0 calc(var(--u) * 25) calc(var(--u) * 25)}
 nav{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;height:100%}
 nav a{position:relative;display:flex;align-items:center;justify-content:center;color:#fff;text-decoration:none;font-weight:800;font-style:italic;font-size:calc(var(--u) * 20);letter-spacing:.01em}
@@ -86,7 +87,11 @@ nav a span{position:relative}
 .hint{margin:6px 0 0;color:#fff;font-size:13px;text-align:center}
 .note{color:#fff;text-align:center;font-size:13px;margin:16px 14px 0}
 .code{font-family:"Space Mono",monospace;font-weight:700;letter-spacing:.06em;background:rgba(255,255,255,.18);border-radius:8px;padding:2px 8px}
-footer{text-align:center;color:#fff;opacity:.9;font-size:12px;padding:calc(var(--u) * 20) 16px 0;line-height:1.6}
+footer{text-align:center;color:#fff;opacity:.9;font-size:12px;padding:calc(var(--u) * 20) 16px 0;line-height:1.6;position:relative;z-index:1}
+.mascot{position:relative;width:100%;aspect-ratio:1080/750;margin-top:calc(var(--u) * -34);overflow:hidden;pointer-events:none;user-select:none;-webkit-user-select:none}
+.mascot video,.mascot img{display:block;width:100%;height:100%;object-fit:contain}
+.gate .mascot{display:none}
+@media (prefers-reduced-motion:reduce){.mascot{display:none}}
 `;
 
 // zip = true: tombol "All ... (zip)" mengunduh ZIP kategori itu. zip = false: file diunduh satu per satu (tanpa ZIP).
@@ -137,6 +142,7 @@ ${preparing ? `<p class="note" id="prep">File masih diunggah — halaman ini mem
 ${!files.length ? `<p class="note">File belum tersedia, sedang diunggah dari booth. Halaman memuat ulang sendiri.</p>` : ""}
 </main>
 <footer>${studio ? `Diambil di ${esc(studio)}<br>` : ""}Kode: <span class="code">${esc(codeShown)}</span><br>Link berlaku ${daysLeft > 0 ? `sekitar ${daysLeft} hari lagi` : "sementara"}. Simpan filenya ke galeri kamu.</footer>
+<div class="mascot" id="mascot" aria-hidden="true"></div>
 </div></div>
 <script>
 (function(){
@@ -159,6 +165,14 @@ show((location.hash||'').slice(1)||${JSON.stringify(firstCat)});
  var DL=JSON.parse(b.closest('.panel').getAttribute('data-all')),m=b.parentNode.querySelector('.hint'),i=0;b.disabled=true;
  (function next(){if(i>=DL.length){m.textContent='Selesai. Cek folder unduhan. Jika ada yang tidak terunduh, izinkan unduhan berganda lalu coba lagi.';b.disabled=false;return}
   m.textContent='Mengunduh '+(i+1)+' / '+DL.length+'…';var a=document.createElement('a');a.href=DL[i].u;a.download=DL[i].n;document.body.appendChild(a);a.click();a.remove();i++;setTimeout(next,900)})()})});
+(function(){var box=document.getElementById('mascot');if(!box||(window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches))return;
+ var ua=navigator.userAgent,webkit=/iPhone|iPad|iPod/.test(ua)||(/Safari/.test(ua)&&!/Chrome|Chromium|Android|Edg|OPR/.test(ua)),el=null;
+ function asImg(){box.innerHTML='';el=document.createElement('img');el.alt='';el.decoding='async';el.src='/assets/animasi-maskot.webp';box.appendChild(el)}
+ function asVideo(){el=document.createElement('video');el.muted=true;el.loop=true;el.playsInline=true;el.setAttribute('playsinline','');el.setAttribute('muted','');el.disablePictureInPicture=true;el.preload='auto';
+  el.addEventListener('error',asImg);el.src='/assets/animasi-maskot.webm';box.appendChild(el)}
+ var started=false;function start(){if(started)return;started=true;webkit?asImg():asVideo()}
+ if(!('IntersectionObserver' in window)){start();return}
+ new IntersectionObserver(function(es){es.forEach(function(e){start();if(el&&el.tagName==='VIDEO'){if(e.isIntersecting){var p=el.play();if(p&&p.catch)p.catch(function(){})}else el.pause()}})},{rootMargin:'200px 0px',threshold:0.15}).observe(box)})();
 var n=${files.length},tries=0,t=setInterval(function(){
  if(++tries>${preparing || !files.length ? 40 : 0}){clearInterval(t);var p=document.getElementById('prep');if(p)p.remove();return}
  fetch('/s/${esc(token)}/files.json',{cache:'no-store'}).then(function(r){return r.json()}).then(function(d){if(d.count!==n||d.pending===0&&${preparing ? "true" : "false"}){clearInterval(t);location.reload()}}).catch(function(){})},4000)})();
