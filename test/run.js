@@ -185,6 +185,36 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
   assert.strictEqual((await fetch(`${base}/api/v1/sessions/${code}`, { method: "DELETE", headers: Ad })).status, 404, "sudah terhapus -> 404 (booth menganggap selesai)");
   console.log("ok  hapus sesi dari booth: hanya pemilik, halaman 404, file & catatan dibersihkan, idempoten");
 
+  // ---- admin: kelola link pelanggan ----
+  const mk = async (tk, fid = "final") => { const r = await j("/api/v1/sessions", { method: "POST", headers: A, body: JSON.stringify({ token: tk, studioCode: "ABC", files: [{ fid, kind: "final", ext: "jpg", size: 6 }] }) }); assert.strictEqual(r.status, 200); await fetch(r.body.uploads[0].url, { method: "PUT", body: "JPEG-1" }); await j(`/api/v1/sessions/${tk}/done`, { method: "POST", headers: A, body: JSON.stringify({ fid }) }); };
+  await mk("KELOLA2345"); await mk("KELOLB6789");
+  assert.strictEqual((await fetch(`${base}/admin/api/sessions`)).status, 401, "butuh login admin");
+  const l1 = (await j("/admin/api/sessions?limit=100", { headers: admin })).body;
+  assert(l1.total >= 2 && l1.sessions.some((x) => x.token === "KELOLA2345" && x.files === 1 && x.bytes === 6 && x.manual === false && x.studio === "Studio A"), JSON.stringify(l1.sessions[0]));
+  assert.strictEqual((await j("/admin/api/sessions?q=kelol%20a2345", { headers: admin })).body.total, 1, "cari kode tak peka huruf/spasi");
+  assert.strictEqual((await j("/admin/api/sessions?q=%25", { headers: admin })).body.total, 0, "tanda % dicari apa adanya, bukan wildcard");
+  assert.strictEqual((await j("/admin/api/sessions?source=manual&q=KELOL", { headers: admin })).body.total, 0);
+  assert.strictEqual((await j("/admin/api/sessions?limit=1&offset=1", { headers: admin })).body.sessions.length, 1);
+  const tgt = Date.now() + 20 * 86400000;
+  assert.strictEqual((await j("/admin/api/sessions/KELOLA2345", { method: "POST", headers: admin, body: JSON.stringify({ expiresAt: tgt, studio: "Studio <b>Baru</b>" }) })).status, 200);
+  const l2 = (await j("/admin/api/sessions?q=KELOLA2345", { headers: admin })).body.sessions[0];
+  assert.strictEqual(l2.expiresAt, Math.round(tgt)); assert.strictEqual(l2.studio, "Studio bBaru/b");
+  assert.strictEqual((await j("/admin/api/sessions/KELOLA2345", { method: "POST", headers: admin, body: JSON.stringify({ expiresAt: Date.now() - 1000 }) })).status, 400, "tidak boleh di masa lalu");
+  assert.strictEqual((await j("/admin/api/sessions/KELOLA2345", { method: "POST", headers: admin, body: JSON.stringify({ expiresAt: Date.now() + 9999 * 86400000 }) })).status, 400, "batas maksimal");
+  assert.strictEqual((await j("/admin/api/sessions/TIDAKADA123", { method: "POST", headers: admin, body: JSON.stringify({ studio: "x" }) })).status, 404);
+  const expBefore = (await j("/admin/api/sessions?q=KELOLB6789", { headers: admin })).body.sessions[0].expiresAt;
+  const ext = await j("/admin/api/sessions-bulk", { method: "POST", headers: admin, body: JSON.stringify({ action: "extend", days: 3, tokens: ["KELOLB6789"] }) });
+  assert(ext.body.ok && ext.body.done === 1);
+  assert.strictEqual((await j("/admin/api/sessions?q=KELOLB6789", { headers: admin })).body.sessions[0].expiresAt, expBefore + 3 * 86400000);
+  assert.strictEqual((await fetch(`${base}/s/KELOLA2345`)).status, 200);
+  const dd = await j("/admin/api/sessions/KELOLA2345", { method: "DELETE", headers: admin }); assert(dd.body.ok && dd.body.deleted);
+  assert.strictEqual((await fetch(`${base}/s/KELOLA2345`)).status, 404, "link mati setelah dihapus");
+  const bd = await j("/admin/api/sessions-bulk", { method: "POST", headers: admin, body: JSON.stringify({ action: "delete", tokens: ["KELOLB6789", "TIDAKADA123"] }) });
+  assert(bd.body.ok && bd.body.done === 1 && bd.body.pending === 0, JSON.stringify(bd.body));
+  assert.strictEqual((await j("/admin/api/sessions?q=KELOL", { headers: admin })).body.total, 0);
+  assert.strictEqual((await j("/admin/api/sessions-bulk", { method: "POST", headers: admin, body: JSON.stringify({ action: "x", tokens: ["A"] }) })).status, 400);
+  console.log("ok  admin link pelanggan: daftar/cari/filter, ubah masa berlaku & studio, hapus satuan & massal, perpanjang massal");
+
   // bagi rata antar bucket sama-prioritas
   const used = (await j("/admin/api/state", { headers: admin })).body.buckets; assert(used.every((b) => b.usedGB >= 0));
   // kedaluwarsa + hapus otomatis

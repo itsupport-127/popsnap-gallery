@@ -327,6 +327,64 @@ app.get("/admin/api/state", adminAuth, (_req, res) => {
     studios: db.prepare("SELECT studio, MAX(studio_code) code, COUNT(*) sessions, MAX(created_at) last FROM sessions GROUP BY studio ORDER BY last DESC").all(),
   });
 });
+// ---- Link pelanggan (sesi): lihat semua, cari, ubah masa berlaku / nama studio, hapus ----
+const likeEsc = (x) => String(x).replace(/[\\%_]/g, (c) => "\\" + c);
+const sessRow = (r) => ({ token: r.token, studio: r.studio, studioCode: r.studio_code || "", mode: r.mode || "", manual: !!r.manual, createdAt: r.created_at, expiresAt: r.expires_at, files: r.files, pending: r.pending, bytes: r.bytes });
+app.get("/admin/api/sessions", adminAuth, (req, res) => {
+  const q = String(req.query.q || "").trim().slice(0, 60), studio = String(req.query.studio || "").slice(0, 80), source = String(req.query.source || "");
+  const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 30)), offset = Math.max(0, Number(req.query.offset) || 0);
+  const w = [], a = [];
+  if (q) { const t = likeEsc(q.replace(/[\s-]/g, "")), n = likeEsc(q); w.push("(s.token LIKE ? ESCAPE '\\' COLLATE NOCASE OR s.studio LIKE ? ESCAPE '\\' OR s.studio_code LIKE ? ESCAPE '\\')"); a.push(`%${t}%`, `%${n}%`, `%${n}%`); }
+  if (studio) { w.push("s.studio = ?"); a.push(studio); }
+  if (source === "manual") w.push("s.manual = 1"); else if (source === "booth") w.push("s.manual = 0");
+  const where = w.length ? "WHERE " + w.join(" AND ") : "";
+  const total = db.prepare(`SELECT COUNT(*) n FROM sessions s ${where}`).get(...a).n;
+  const rows = db.prepare(`SELECT s.*, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'ok') files, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'pending') pending, (SELECT COALESCE(SUM(f.size), 0) FROM files f WHERE f.token = s.token AND f.state = 'ok') bytes FROM sessions s ${where} ORDER BY s.created_at DESC LIMIT ? OFFSET ?`).all(...a, limit, offset);
+  res.json({ total, publicUrl: PUBLIC_URL(), sessions: rows.map(sessRow) });
+});
+const MAX_EXPIRY_MS = 730 * 86400000;
+app.post("/admin/api/sessions/:token", adminAuth, (req, res) => {
+  const s = db.prepare("SELECT * FROM sessions WHERE token = ?").get(req.params.token);
+  if (!s) return res.status(404).json({ error: "Sesi tidak ditemukan." });
+  const b = req.body || {};
+  if (b.expiresAt != null) {
+    const t = Number(b.expiresAt);
+    if (!Number.isFinite(t) || t < now() + 60000) return res.status(400).json({ error: "Masa berlaku harus di masa depan. Untuk mematikan link sekarang, pakai Hapus." });
+    if (t > now() + MAX_EXPIRY_MS) return res.status(400).json({ error: "Masa berlaku maksimal 2 tahun dari sekarang." });
+    db.prepare("UPDATE sessions SET expires_at = ? WHERE token = ?").run(Math.round(t), s.token);
+  }
+  if (b.studio != null) {
+    const name = String(b.studio).replace(/[<>]/g, "").trim().slice(0, 60);
+    if (!name) return res.status(400).json({ error: "Nama studio tidak boleh kosong." });
+    db.prepare("UPDATE sessions SET studio = ? WHERE token = ?").run(name, s.token);
+  }
+  res.json({ ok: true });
+});
+app.delete("/admin/api/sessions/:token", adminAuth, async (req, res) => {
+  const s = db.prepare("SELECT token FROM sessions WHERE token = ?").get(req.params.token);
+  if (!s) return res.json({ ok: true, deleted: true });
+  db.prepare("UPDATE sessions SET expires_at = ? WHERE token = ?").run(now() - 1000, s.token); // link langsung mati
+  const gone = await purgeSession(s.token);
+  res.json({ ok: true, deleted: gone }); // false = sebagian file di cloud belum terhapus; dibereskan otomatis berkala
+});
+// Aksi massal: { action: "delete" | "extend", tokens: [...], days }  (extend = tambah N hari dari masa berlaku sekarang)
+app.post("/admin/api/sessions-bulk", adminAuth, async (req, res) => {
+  const b = req.body || {};
+  const tokens = [...new Set((Array.isArray(b.tokens) ? b.tokens : []).map((x) => String(x)))].slice(0, 200);
+  if (!tokens.length) return res.status(400).json({ error: "Tidak ada sesi dipilih." });
+  let done = 0, pending = 0;
+  if (b.action === "extend") {
+    const days = Math.max(1, Math.min(365, Math.round(Number(b.days) || 0)));
+    for (const t of tokens) { const r = db.prepare("UPDATE sessions SET expires_at = MIN(MAX(expires_at, ?) + ?, ?) WHERE token = ?").run(now(), days * 86400000, now() + MAX_EXPIRY_MS, t); done += Number(r.changes) || 0; }
+  } else if (b.action === "delete") {
+    for (const t of tokens) {
+      if (!db.prepare("SELECT 1 FROM sessions WHERE token = ?").get(t)) continue;
+      db.prepare("UPDATE sessions SET expires_at = ? WHERE token = ?").run(now() - 1000, t);
+      if (await purgeSession(t)) done++; else pending++;
+    }
+  } else return res.status(400).json({ error: "Aksi tidak dikenal." });
+  res.json({ ok: true, done, pending });
+});
 app.post("/admin/api/settings", adminAuth, (req, res) => {
   if (req.body?.retentionDays != null) setSetting("retention_days", Math.max(1, Math.min(365, Math.round(Number(req.body.retentionDays) || 7))));
   if (req.body?.zipEnabled != null) { const z = req.body.zipEnabled; setSetting("zip_enabled", z === false || z === "0" || z === 0 ? "0" : String(z) === "2" ? "2" : "1"); }
