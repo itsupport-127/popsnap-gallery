@@ -374,7 +374,7 @@ function combo(inp){
  ul.addEventListener('mousedown',e=>{e.preventDefault();const li=e.target.closest('li');if(!li)return;if(li.dataset.new)close();else if(li.dataset.i!=null)pick(+li.dataset.i)});
  document.addEventListener('mousedown',e=>{if(!w.contains(e.target))close()});
  inp.addEventListener('blur',()=>setTimeout(close,120))}
-combo($('u_studio'));combo($('l_nm'));
+combo($('u_studio'));combo($('l_nm'));combo($('s_nm'));
 
 
 // ---- Kelola studio ----
