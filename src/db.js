@@ -53,6 +53,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_exp ON sessions(expires_at);
 `);
 
 try { db.exec("ALTER TABLE sessions ADD COLUMN manual INTEGER NOT NULL DEFAULT 0"); } catch { /* sudah ada */ }
+// Izin foto dari tamu: bit 1 = boleh di sosmed, bit 2 = boleh dipajang di mading (3 = keduanya, 0 = tidak, NULL = belum dijawab)
+try { db.exec("ALTER TABLE sessions ADD COLUMN social INTEGER"); } catch { /* sudah ada */ }
 
 // Daftar studio yang dikenal galeri. Sumber nama & token tetap KASIR; di sini hanya status pantauan + pengaturan sisi galeri.
 db.exec(`CREATE TABLE IF NOT EXISTS studios (

@@ -156,6 +156,27 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
   const ht = await hc.text(); assert(ht.includes('id="intro"') && ht.includes('id="go"') && ht.includes("K7M2 9QXH 4B"));
   console.log("ok  kode pendek tidak peka huruf besar/kecil + layar pembuka");
 
+  // ---- izin foto (sosmed / mading) + status untuk kasir ----
+  {
+    const tk = "Izin1234567890xyz";
+    const mk = (extra) => ({ method: "POST", headers: A, body: JSON.stringify({ token: tk, files: [{ fid: "final", kind: "final", ext: "jpg", size: 3 }], ...extra }) });
+    assert.strictEqual((await j("/api/v1/sessions", mk({ social: 2 }))).status, 200);
+    let ls = (await j("/admin/api/sessions?social=mading", { headers: admin })).body.sessions;
+    assert(ls.some((x) => x.token === tk && x.social === 2), "sesi harus muncul di filter mading");
+    assert(!(await j("/admin/api/sessions?social=sosmed", { headers: admin })).body.sessions.some((x) => x.token === tk));
+    assert.strictEqual((await j(`/api/v1/sessions/${tk}/social`, { method: "POST", headers: A, body: JSON.stringify({ social: 3 }) })).status, 200);
+    assert((await j("/admin/api/sessions?social=sosmed", { headers: admin })).body.sessions.some((x) => x.token === tk));
+    assert.strictEqual((await j(`/api/v1/sessions/${tk}/social`, { method: "POST", headers: A, body: JSON.stringify({ social: 9 }) })).status, 400);
+    assert.strictEqual((await j(`/api/v1/sessions/${tk}/social`, { method: "POST", headers: { ...A, Authorization: "Bearer tokenstudioB0000000" }, body: JSON.stringify({ social: 0 }) })).status, 404, "studio lain tidak boleh mengubah");
+    assert.strictEqual((await j(`/api/v1/sessions/${tk}/social`, { method: "POST", headers: A, body: JSON.stringify({ social: null }) })).status, 200);
+    assert((await j("/admin/api/sessions?social=unknown", { headers: admin })).body.sessions.some((x) => x.token === tk));
+    assert.strictEqual((await j("/admin/api/sessions", {})).status, 401, "daftar sesi butuh login admin");
+    // status ringkas untuk kasir: file belum dikonfirmasi = 0, setelah done = 1
+    let st = (await j("/api/v1/status", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tokens: [tk, "TidakAda1234567", "bad!"] }) })).body.sessions;
+    assert.strictEqual(st[tk].exists, true); assert.strictEqual(st[tk].files, 0); assert.strictEqual(st.TidakAda1234567.exists, false); assert(!("bad!" in st));
+  }
+  console.log("ok  izin foto: simpan, ubah, filter admin, isolasi studio, status ringkas untuk kasir");
+
   // ---- unggah manual dari website (PC CS) ----
   const mt = "Manual1234567890x";
   const prep = await j("/admin/api/upload/prepare", { method: "POST", headers: admin, body: JSON.stringify({ token: mt, studio: "Studio A", studioCode: "ABC", mode: "photo", files: [{ fid: "final", kind: "final", ext: "png", size: 8 }, { fid: "raw1", kind: "raw", idx: 1, ext: "jpg", size: 6 }] }) });

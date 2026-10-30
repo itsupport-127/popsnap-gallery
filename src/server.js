@@ -109,7 +109,9 @@ app.get("/api/v1/ping", async (req, res) => {
 });
 
 /** Daftarkan sesi + file, kembalikan daftar yang perlu diunggah. Dipakai booth (token studio) dan unggah manual dari website (login admin). */
-function registerSession(studio, { token, mode, studioCode, files, retry, manual }) {
+// Izin foto dari tamu: bit 1 = boleh di sosmed, bit 2 = boleh dipajang di mading (3 = keduanya, 0 = tidak, NULL = belum dijawab)
+const normSocial = (v) => (v === null || v === undefined || v === "" ? undefined : Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 3 ? Number(v) : undefined);
+function registerSession(studio, { token, mode, studioCode, files, retry, manual, social }) {
   token = normToken(token);
   if (!TOKEN_RE.test(String(token))) return { status: 400, error: "Token sesi tidak valid." };
   if (!Array.isArray(files) || files.length > MAX_FILES) return { status: 400, error: "Daftar file tidak valid." };
@@ -125,6 +127,8 @@ function registerSession(studio, { token, mode, studioCode, files, retry, manual
       .run(token, studio, safe(studioCode, 20), String(mode || "photo").slice(0, 12), t, t + (db.prepare("SELECT retention_days r FROM studios WHERE skey = ?").get(skey(studio))?.r || retentionDays()) * 86400000, manual ? 1 : 0);
     sess = db.prepare("SELECT * FROM sessions WHERE token = ?").get(token);
   }
+  const soc = normSocial(social);
+  if (soc !== undefined && soc !== sess.social) db.prepare("UPDATE sessions SET social = ? WHERE token = ?").run(soc, token);
   const uploads = [], skipped = [];
   const d = new Date(sess.created_at), ym = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
   for (const f of files) {
@@ -173,6 +177,36 @@ app.post("/api/v1/sessions/:token/done", async (req, res) => {
     warmThumb(row);
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Booth memperbarui izin foto sesi (admin mengubahnya di booth).
+app.post("/api/v1/sessions/:token/social", async (req, res) => {
+  try {
+    const a = await auth.verify((req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
+    if (!a) return res.status(401).json({ error: "Token tidak valid." });
+    const token = normToken(req.params.token);
+    const s = TOKEN_RE.test(String(token)) ? db.prepare("SELECT studio FROM sessions WHERE token = ?").get(token) : null;
+    if (!s || skey(s.studio) !== skey(a.studio)) return res.status(404).json({ error: "Sesi tidak ditemukan." });
+    const v = req.body?.social === null ? null : normSocial(req.body?.social);
+    if (v === undefined) return res.status(400).json({ error: "Nilai izin harus 0-3 atau null." });
+    db.prepare("UPDATE sessions SET social = ? WHERE token = ?").run(v, token);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// Status ringkas banyak sesi sekaligus (dipakai kasir untuk menandai "belum terupload" / "sudah terupload", termasuk unggah manual dari CS).
+// Tanpa login: token sesi sudah rahasia; yang dikembalikan hanya jumlah file dan izin, bukan isi atau link file.
+app.post("/api/v1/status", (req, res) => {
+  const list = Array.isArray(req.body?.tokens) ? req.body.tokens.slice(0, 60) : [];
+  const out = {};
+  for (const raw of list) {
+    const token = normToken(raw);
+    if (!TOKEN_RE.test(String(token))) continue;
+    const s = db.prepare("SELECT token, social, expires_at FROM sessions WHERE token = ?").get(token);
+    const files = s ? db.prepare("SELECT COUNT(*) n FROM files WHERE token = ? AND state = 'ok'").get(token).n : 0;
+    out[raw] = { exists: !!s, files, expired: !!s && s.expires_at < now(), social: s ? s.social : null };
+  }
+  res.set("Cache-Control", "no-store").json({ ok: true, sessions: out });
 });
 
 // Booth menghapus sesi (transaksi dihapus/diedit di kasir): halaman langsung tidak bisa dibuka, file dibersihkan dari bucket.
@@ -345,7 +379,7 @@ app.post("/admin/api/upload/prepare", adminAuth, (req, res) => {
   const b = req.body || {};
   const studio = String(b.studio || "").trim().slice(0, 60);
   if (!studio) return res.status(400).json({ error: "Nama studio wajib diisi." });
-  const r = registerSession(ensureStudio(studio).name, { token: b.token, mode: b.mode, studioCode: b.studioCode, files: b.files, retry: b.retry, manual: true });
+  const r = registerSession(ensureStudio(studio).name, { token: b.token, mode: b.mode, studioCode: b.studioCode, files: b.files, retry: b.retry, manual: true, social: b.social });
   if (r.error) return res.status(r.status).json({ error: r.error });
   res.json({ ...r.body, uploads: r.body.uploads.map((u) => ({ fid: u.fid, path: `/admin/api/upload/${b.token}/${safe(u.fid, 30)}`, contentType: u.contentType })) });
 });
@@ -432,7 +466,7 @@ app.delete("/admin/api/studios/:key", adminAuth, async (req, res) => {
 
 // ---- Link pelanggan (sesi): lihat semua, cari, ubah masa berlaku / nama studio, hapus ----
 const likeEsc = (x) => String(x).replace(/[\\%_]/g, (c) => "\\" + c);
-const sessRow = (r) => ({ token: r.token, studio: r.studio, studioCode: r.studio_code || "", mode: r.mode || "", manual: !!r.manual, createdAt: r.created_at, expiresAt: r.expires_at, files: r.files, pending: r.pending, bytes: r.bytes });
+const sessRow = (r) => ({ token: r.token, studio: r.studio, studioCode: r.studio_code || "", mode: r.mode || "", manual: !!r.manual, social: r.social == null ? null : r.social, createdAt: r.created_at, expiresAt: r.expires_at, files: r.files, pending: r.pending, bytes: r.bytes });
 app.get("/admin/api/sessions", adminAuth, (req, res) => {
   const q = String(req.query.q || "").trim().slice(0, 60), studio = String(req.query.studio || "").slice(0, 80), source = String(req.query.source || "");
   const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 30)), offset = Math.max(0, Number(req.query.offset) || 0);
@@ -440,6 +474,9 @@ app.get("/admin/api/sessions", adminAuth, (req, res) => {
   if (q) { const t = likeEsc(q.replace(/[\s-]/g, "")), n = likeEsc(q); w.push("(s.token LIKE ? ESCAPE '\\' COLLATE NOCASE OR s.studio LIKE ? ESCAPE '\\' OR s.studio_code LIKE ? ESCAPE '\\')"); a.push(`%${t}%`, `%${n}%`, `%${n}%`); }
   if (studio) { w.push("s.studio = ?"); a.push(studio); }
   if (source === "manual") w.push("s.manual = 1"); else if (source === "booth") w.push("s.manual = 0");
+  const soc = String(req.query.social || "");
+  const sc = { sosmed: "(s.social & 1) = 1", mading: "(s.social & 2) = 2", denied: "s.social = 0", unknown: "s.social IS NULL" }[soc];
+  if (sc) w.push(sc);
   const where = w.length ? "WHERE " + w.join(" AND ") : "";
   const total = db.prepare(`SELECT COUNT(*) n FROM sessions s ${where}`).get(...a).n;
   const rows = db.prepare(`SELECT s.*, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'ok') files, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'pending') pending, (SELECT COALESCE(SUM(f.size), 0) FROM files f WHERE f.token = s.token AND f.state = 'ok') bytes FROM sessions s ${where} ORDER BY s.created_at DESC LIMIT ? OFFSET ?`).all(...a, limit, offset);
