@@ -83,6 +83,15 @@ button.dg{background:var(--red);color:#fff}
 .toast{background:#fff;border:2px solid #000;border-radius:14px;padding:11px 14px;font-size:14px;font-weight:600;box-shadow:4px 4px 0 rgba(0,0,0,.9);animation:tin .2s ease}
 .toast.bad{border-color:var(--bad);color:var(--bad)}
 @keyframes tin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.srow{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:0 0 14px}.grow{flex:1}
+.schip{font-weight:800;font-size:14px;background:var(--cream);border:2px solid #000;border-radius:999px;padding:6px 14px}
+.dot{display:inline-flex;align-items:center;gap:7px;font-weight:800;font-size:13px;white-space:nowrap}.dot::before{content:"";width:10px;height:10px;border-radius:50%;background:#9AA6B2;box-shadow:0 0 0 3px rgba(154,166,178,.25)}
+.dot.online{color:var(--ok)}.dot.online::before{background:#1FA85A;box-shadow:0 0 0 3px rgba(31,168,90,.25);animation:pulse 1.8s ease-in-out infinite}
+.dot.recent{color:#9a6a00}.dot.recent::before{background:var(--yellow);box-shadow:0 0 0 3px rgba(253,185,57,.3)}
+.dot.offline{color:var(--muted)}.dot.never{color:var(--muted)}.dot.never::before{background:transparent;border:2px solid #9AA6B2;box-shadow:none}
+.dot.blocked{color:var(--bad)}.dot.blocked::before{background:var(--red);box-shadow:0 0 0 3px rgba(224,40,67,.25)}
+@keyframes pulse{50%{box-shadow:0 0 0 6px rgba(31,168,90,0)}}@media (prefers-reduced-motion:reduce){.dot.online::before{animation:none}}
+tr.blk td{background:#FFF3F5}
 .ham{display:none}
 @media (max-width:860px){
  .layout{display:block}
@@ -126,9 +135,19 @@ button.dg{background:var(--red);color:#fff}
  <div class="card"><h2>Kapasitas penyimpanan</h2><div id="cap"></div></div>
 </section>
 <section class="page" id="pg-studio">
- <h1>Studio</h1><p class="lead">Studio yang sudah mengirim foto ke galeri.</p>
- <div class="card"><div class="tw"><table id="st"></table></div></div>
+ <h1>Studio</h1><p class="lead">Pantau studio yang terhubung ke galeri. Daftar dan token studio tetap dikelola di kasir; di sini kamu memantau, memberi catatan, mengatur masa simpan, menggabung nama kembar, atau memutus sambungan.</p>
+ <div class="srow"><span class="schip" id="s_cnt">–</span><span class="grow"></span>
+  <button class="btn s" type="button" onclick="loadS()">Segarkan</button><button class="btn" type="button" onclick="openS()">+ Tambah studio</button></div>
+ <div class="card"><div class="tw"><table id="s_t"></table></div><p class="muted" id="s_info" style="margin:10px 0 0"></p></div>
 </section>
+<dialog id="s_dlg"><h2 id="s_dt">Tambah studio</h2>
+ <label for="s_nm">Nama studio</label><input id="s_nm" maxlength="60" placeholder="mis. Studio Emma">
+ <p class="muted" id="s_nmh" style="margin:6px 0 0"></p>
+ <label for="s_note" style="margin-top:12px">Catatan (lokasi, PIC, dll.)</label><input id="s_note" maxlength="200" placeholder="mis. Cabang Bandung, PIC Rina">
+ <label for="s_ret" style="margin-top:12px">Masa simpan link (hari)</label><input id="s_ret" type="number" min="1" max="365" placeholder="kosong = ikut pengaturan umum">
+ <p class="muted" style="margin:10px 0 0">Studio dibuat otomatis saat booth pertama terhubung. Tambah manual hanya untuk menyiapkan catatan atau masa simpan lebih dulu. Kalau namanya sama dengan studio lain, keduanya digabung.</p>
+ <p style="margin:14px 0 0"><button class="btn" type="button" onclick="saveS()">Simpan</button> <button class="btn s" type="button" onclick="$('s_dlg').close()">Batal</button> <span id="s_msg"></span></p>
+</dialog>
 <section class="page" id="pg-link">
  <h1>Link pelanggan</h1><p class="lead">Semua link foto yang sudah masuk, dari booth maupun unggah manual. Bisa dibuka, disalin, diperpanjang masa berlakunya, diganti nama studionya, atau dihapus. Kalau internet booth bermasalah, unggah hasilnya dari sini.</p>
  <p style="margin:0 0 14px"><button class="btn" id="addu" type="button" onclick="showU()">+ Unggah manual</button></p>
@@ -204,7 +223,7 @@ $('s_sessions').textContent=s.stats.sessions;$('s_files').textContent=s.stats.fi
 $('pub').innerHTML=s.publicUrl?`<a href="${s.publicUrl}" target="_blank" rel="noopener">${s.publicUrl}</a>`:'<span class="bad">(PUBLIC_URL belum diisi di .env!)</span>';$('who').textContent=s.publicUrl?s.publicUrl.replace(/^https?:\/\//,''):'';
 $('cap').innerHTML=s.buckets.length?s.buckets.map(b=>{const pct=b.quotaGB?Math.min(100,Math.round(b.usedGB/b.quotaGB*100)):0;const left=b.quotaGB?Math.max(0,b.quotaGB-b.usedGB):0;const lv=!b.quotaGB?'':(left<=1||pct>=95)?'full':(left<=3||pct>=80)?'warn':'';return `<div style="margin:10px 0"><b>${b.name}</b> <span class="muted">${b.usedGB} GB${b.quotaGB?' / '+b.quotaGB+' GB':' (tanpa batas)'}</span> <span class="pill ${b.enabled?'ok':'bad'}">${b.enabled?'Aktif':'Nonaktif'}</span>${b.quotaGB?`<div class="bar" title="Sisa ${Math.round(left*100)/100} GB"><i class="${lv}" style="width:${pct}%"></i></div>`:''}</div>`}).join(''):'<p class="muted">Belum ada bucket. Tambahkan di menu Penyimpanan cloud.</p>';
 $('bt').innerHTML='<tr><th>Nama</th><th>Bucket</th><th>Prioritas</th><th>Terpakai</th><th>Status</th><th></th></tr>'+s.buckets.map(b=>`<tr><td>${b.name}</td><td>${b.bucket}<div class="muted">${b.endpoint}</div></td><td>${b.priority}</td><td>${b.usedGB} GB${b.quotaGB?' / '+b.quotaGB+' GB':''}</td><td class="${b.enabled?'ok':'bad'}"><b>${b.enabled?'Aktif':'Nonaktif'}</b><div id="t${b.id}" class="muted"></div></td><td><button class="btn s sm" onclick='editB(${JSON.stringify(b)})'>Ubah</button> <button class="btn s sm" onclick="testB(${b.id})">Tes</button> <button class="btn d sm" onclick="delB(${b.id})">Hapus</button></td></tr>`).join('')||'<tr><td class="muted">Belum ada bucket. Tambahkan lewat formulir di bawah.</td></tr>';
-knownStudios=s.studios;if(typeof fillStudios==='function')fillStudios();$('studios').innerHTML=s.studios.map(x=>`<option value="${x.studio}">`).join('');$('st').innerHTML='<tr><th>Studio</th><th>Sesi</th><th>Terakhir</th></tr>'+s.studios.map(x=>`<tr><td>${x.studio}</td><td>${x.sessions}</td><td>${new Date(x.last).toLocaleString('id-ID')}</td></tr>`).join('')}
+knownStudios=s.studios;if(typeof fillStudios==='function')fillStudios();}
 async function saveZip(){await api('/admin/api/settings',{method:'POST',body:JSON.stringify({zipEnabled:$('zip').value})});load()}
 async function saveRet(){await api('/admin/api/settings',{method:'POST',body:JSON.stringify({retentionDays:$('ret').value})});load()}
 function editB(b){editId=b.id;$('f_kind').value=/backblazeb2\.com/.test(b.endpoint)?'b2':/r2\.cloudflarestorage\.com/.test(b.endpoint)?'r2':'s3';$('ftitle').textContent='Ubah bucket';for(const k of['name','endpoint','region','bucket','accessKey','priority','quotaGB'])$('f_'+k).value=b[k];$('f_enabled').value=b.enabled?'1':'0';$('f_secretKey').value='';$('f_sec').textContent='(kosongkan = tidak diubah)';$('bform').hidden=false;$('addb').hidden=true;$('bform').scrollIntoView({behavior:'smooth',block:'start'})}
@@ -357,13 +376,56 @@ function combo(inp){
  inp.addEventListener('blur',()=>setTimeout(close,120))}
 combo($('u_studio'));combo($('l_nm'));
 
+
+// ---- Kelola studio ----
+let S={rows:[],editKey:null,t:null,now:0};
+const EV={ping:'cek koneksi',sessions:'daftar sesi',upload:'unggah file',delete:'hapus sesi'};
+const ST={online:'Online',recent:'Baru saja',offline:'Offline',never:'Belum terhubung',blocked:'Terputus'};
+const ago=t=>{if(!t)return'belum pernah';const d=Math.max(0,Math.round((S.now-t)/1000));return d<45?'baru saja':d<3600?Math.round(d/60)+' menit lalu':d<86400?Math.round(d/3600)+' jam lalu':Math.round(d/86400)+' hari lalu'};
+async function loadS(){const r=await api('/admin/api/studios');if(!r||!r.studios)return;S.rows=r.studios;S.now=r.now;
+ $('s_cnt').textContent=`${r.counts.online} online · ${r.counts.total} studio${r.counts.blocked?' · '+r.counts.blocked+' terputus':''}`;drawS()}
+function drawS(){
+ $('s_t').innerHTML=S.rows.length?'<tr><th>Status</th><th>Studio</th><th>Link & file</th><th>Terakhir terlihat</th><th>Unggahan terakhir</th><th></th></tr>'+S.rows.map(x=>`<tr class="${x.blocked?'blk':''}">
+  <td><span class="dot ${x.status}">${ST[x.status]}</span></td>
+  <td><b>${he(x.name)}</b>${x.note?`<div class="muted">${he(x.note)}</div>`:''}${x.retentionDays?`<div class="muted">Masa simpan ${x.retentionDays} hari</div>`:''}</td>
+  <td>${x.sessions} link<div class="muted">${x.files} file · ${fmtBytes(x.bytes)}${x.pending?` · ${x.pending} menunggu`:''}</div></td>
+  <td title="${x.lastSeenAt?he(new Date(x.lastSeenAt).toLocaleString('id-ID')):''}">${ago(x.lastSeenAt)}${x.lastEvent?`<div class="muted">${EV[x.lastEvent]||he(x.lastEvent)}${x.lastIp?' · '+he(x.lastIp):''}</div>`:''}</td>
+  <td>${x.lastUploadAt?ago(x.lastUploadAt):'<span class="muted">–</span>'}</td>
+  <td><div class="acts"><button class="btn sm s" type="button" onclick="seeS('${he(x.key)}')">Lihat link</button>
+   <button class="btn sm s" type="button" onclick="openS('${he(x.key)}')">Edit</button>
+   ${x.blocked?`<button class="btn sm" type="button" onclick="blockS('${he(x.key)}',false)">Sambungkan</button>`:`<button class="btn sm s" type="button" onclick="blockS('${he(x.key)}',true)">Putuskan</button>`}
+   <button class="btn sm d" type="button" onclick="delS('${he(x.key)}')">Hapus</button></div></td></tr>`).join(''):'<tr><td class="muted" style="padding:18px 8px">Belum ada studio. Studio muncul otomatis begitu booth pertama terhubung ke galeri.</td></tr>';
+ $('s_info').textContent=S.rows.length?'Online = menghubungi galeri dalam 5 menit terakhir. Booth menghubungi galeri tiap ±1 menit selama aplikasinya menyala dan galeri diaktifkan.':''}
+const sRow=k=>S.rows.find(x=>x.key===k);
+function openS(k){const x=k?sRow(k):null;S.editKey=x?x.key:null;$('s_dt').textContent=x?'Edit studio':'Tambah studio';$('s_nm').value=x?x.name:'';$('s_note').value=x?x.note:'';$('s_ret').value=x&&x.retentionDays?x.retentionDays:'';$('s_msg').textContent='';
+ $('s_nmh').textContent=x?'Mengubah nama ikut mengubah semua link studio ini. Nama yang sama dengan studio lain akan menggabungkan keduanya.':'';$('s_dlg').showModal()}
+async function saveS(){const body={note:$('s_note').value.trim(),retentionDays:$('s_ret').value.trim()===''?null:Number($('s_ret').value)},nm=$('s_nm').value.trim();
+ if(!nm){$('s_msg').textContent='Nama studio wajib diisi';$('s_msg').className='bad';return}
+ let r;
+ if(S.editKey){const x=sRow(S.editKey);if(nm!==x.name){const other=S.rows.find(y=>y.key!==x.key&&y.name.toLowerCase()===nm.toLowerCase());if(other&&!await ask('Gabungkan dengan “'+other.name+'”?','Semua link “'+x.name+'” dipindah ke “'+other.name+'”. Tindakan ini tidak bisa dibatalkan.',{ok:'Ya, gabungkan',danger:false}))return;body.name=nm}
+  r=await api('/admin/api/studios/'+encodeURIComponent(S.editKey),{method:'POST',body:JSON.stringify(body)})}
+ else r=await api('/admin/api/studios',{method:'POST',body:JSON.stringify({...body,name:nm})});
+ if(r.ok){$('s_dlg').close();toast(r.merged?'Studio digabung.':'Tersimpan.');loadS();load()}else{$('s_msg').textContent=r.error||'Gagal menyimpan';$('s_msg').className='bad'}}
+async function blockS(k,on){const x=sRow(k);if(!x)return;
+ if(on&&!await ask('Putuskan “'+x.name+'”?','Booth studio ini tidak bisa mendaftarkan sesi atau mengunggah foto sampai disambungkan lagi. Link pelanggan yang sudah ada tetap bisa dibuka.',{ok:'Ya, putuskan'}))return;
+ const r=await api('/admin/api/studios/'+encodeURIComponent(k),{method:'POST',body:JSON.stringify({blocked:on})});
+ if(r.ok){toast(on?'Studio diputus.':'Studio disambungkan lagi.');loadS()}else toast(r.error||'Gagal',1)}
+async function delS(k){const x=sRow(k);if(!x)return;
+ if(x.blocked){toast('Studio sedang diputus. Sambungkan dulu bila ingin menghapusnya.',1);return}
+ if(!await ask('Hapus studio “'+x.name+'” dari daftar?',x.sessions?'Studio ini masih punya '+x.sessions+' link. Kamu akan ditanya lagi soal link-nya.':'Studio akan muncul lagi otomatis kalau booth-nya menghubungi galeri.',{ok:'Lanjut'}))return;
+ let r=await api('/admin/api/studios/'+encodeURIComponent(k),{method:'DELETE'});
+ if(r.sessions){if(!await ask('Hapus studio beserta '+r.sessions+' link?','Semua link dan file di cloud milik “'+x.name+'” ikut dihapus. Tidak bisa dibatalkan.',{ok:'Ya, hapus semua'}))return;r=await api('/admin/api/studios/'+encodeURIComponent(k)+'?purge=1',{method:'DELETE'})}
+ if(r.ok){toast(r.deleted===false?'Sebagian file di cloud belum terhapus, dibereskan otomatis nanti.':'Studio dihapus.');loadS();load()}else toast(r.error||'Gagal menghapus',1)}
+function seeS(k){const x=sRow(k);if(!x)return;$('l_studio').value='';$('l_source').value='';$('l_q').value=x.name;location.hash='#link'}
+setInterval(()=>{if(location.hash==='#studio'&&!document.hidden)loadS()},15000);
+
 // ---- menu samping (hash: #ringkasan, #studio, #link, #penyimpanan, #pengaturan) ----
 const PAGES=['ringkasan','studio','link','penyimpanan','pengaturan'];
 if((location.hash||'')==='#unggah')history.replaceState(null,'','#link'),window.__openU=1; // alamat lama
 function nav(){const id=PAGES.includes((location.hash||'').slice(1))?location.hash.slice(1):'ringkasan';
  PAGES.forEach(p=>{$('pg-'+p).className='page'+(p===id?' on':'')});
  document.querySelectorAll('#nav a').forEach(a=>{const on=a.dataset.p===id;a.className=on?'on':'';if(on)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
- document.body.classList.remove('open');window.scrollTo(0,0);if(id==='link')loadL(true);document.title='POPSNAP Galeri — '+document.querySelector('#nav a.on span').textContent}
+ document.body.classList.remove('open');window.scrollTo(0,0);if(id==='link')loadL(true);if(id==='studio')loadS();document.title='POPSNAP Galeri — '+document.querySelector('#nav a.on span').textContent}
 window.addEventListener('hashchange',nav);
 window.addEventListener('hashchange',()=>{if(location.hash==='#unggah'){history.replaceState(null,'','#link');nav();showU()}});
 $('ham').addEventListener('click',()=>document.body.classList.toggle('open'));$('scrim').addEventListener('click',()=>document.body.classList.remove('open'));

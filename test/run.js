@@ -215,6 +215,59 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
   assert.strictEqual((await j("/admin/api/sessions-bulk", { method: "POST", headers: admin, body: JSON.stringify({ action: "x", tokens: ["A"] }) })).status, 400);
   console.log("ok  admin link pelanggan: daftar/cari/filter, ubah masa berlaku & studio, hapus satuan & massal, perpanjang massal");
 
+  // ---- admin: kelola studio (kasir tetap pemilik daftar; galeri memantau & mengatur) ----
+  const Bh = { Authorization: "Bearer tokenstudioB0000000", "Content-Type": "application/json" };
+  assert.strictEqual((await fetch(`${base}/admin/api/studios`)).status, 401);
+  assert((await fetch(`${base}/api/v1/ping`, { headers: Bh })).ok);
+  let sl = (await j("/admin/api/studios", { headers: admin })).body;
+  const stA = sl.studios.find((x) => x.key === "studio a"), stB = sl.studios.find((x) => x.key === "studio b");
+  assert(stA && stA.status === "online" && stA.sessions >= 0 && stB && stB.status === "online" && stB.lastEvent === "ping", JSON.stringify(stB));
+  assert(sl.counts.online >= 2);
+  // tambah + duplikat
+  assert.strictEqual((await j("/admin/api/studios", { method: "POST", headers: admin, body: JSON.stringify({ name: "Studio Cadangan", note: "Cabang Bandung", retentionDays: 14 }) })).status, 200);
+  assert.strictEqual((await j("/admin/api/studios", { method: "POST", headers: admin, body: JSON.stringify({ name: "STUDIO cadangan" }) })).status, 409);
+  const cad = (await j("/admin/api/studios", { headers: admin })).body.studios.find((x) => x.key === "studio cadangan");
+  assert(cad.status === "never" && cad.note === "Cabang Bandung" && cad.retentionDays === 14);
+  // masa simpan per studio dipakai sesi baru
+  assert.strictEqual((await j("/admin/api/studios/studio%20b", { method: "POST", headers: admin, body: JSON.stringify({ retentionDays: 3, note: "Lantai 2" }) })).status, 200);
+  const rs = await j("/api/v1/sessions", { method: "POST", headers: Bh, body: JSON.stringify({ token: "BRetain12345678", studioCode: "BBB", files: [{ fid: "final", kind: "final", ext: "jpg", size: 6 }] }) });
+  assert.strictEqual(rs.status, 200);
+  const exp = (await j("/admin/api/sessions?q=BRetain12345678", { headers: admin })).body.sessions[0];
+  assert(Math.abs(exp.expiresAt - exp.createdAt - 3 * 86400000) < 5000, "masa simpan 3 hari ikut pengaturan studio");
+  // putuskan: semua panggilan booth ditolak; sambungkan lagi
+  assert.strictEqual((await j("/admin/api/studios/studio%20b", { method: "POST", headers: admin, body: JSON.stringify({ blocked: true }) })).status, 200);
+  const p403 = await fetch(`${base}/api/v1/ping`, { headers: Bh }); assert.strictEqual(p403.status, 403); assert.strictEqual((await p403.json()).blocked, true);
+  assert.strictEqual((await j("/api/v1/sessions", { method: "POST", headers: Bh, body: JSON.stringify({ token: "BBlocked1234567", files: [] }) })).status, 403);
+  assert.strictEqual((await j("/api/v1/sessions/BRetain12345678/done", { method: "POST", headers: Bh, body: JSON.stringify({ fid: "final" }) })).status, 403);
+  assert.strictEqual((await fetch(`${base}/api/v1/sessions/BRetain12345678`, { method: "DELETE", headers: Bh })).status, 403);
+  assert.strictEqual((await fetch(`${base}/api/v1/ping`, { headers: A })).status, 200, "studio lain tidak terpengaruh");
+  assert.strictEqual((await j("/admin/api/studios", { headers: admin })).body.studios.find((x) => x.key === "studio b").status, "blocked");
+  assert.strictEqual((await fetch(`${base}/admin/api/studios/studio%20b`, { method: "DELETE", headers: admin })).status, 400, "tidak boleh dihapus saat diputus");
+  assert.strictEqual((await j("/admin/api/studios/studio%20b", { method: "POST", headers: admin, body: JSON.stringify({ blocked: false }) })).status, 200);
+  assert.strictEqual((await fetch(`${base}/api/v1/ping`, { headers: Bh })).status, 200);
+  // hapus: butuh purge bila masih punya link
+  const d409 = await fetch(`${base}/admin/api/studios/studio%20b`, { method: "DELETE", headers: admin }); assert.strictEqual(d409.status, 409);
+  const dpg = await j("/admin/api/studios/studio%20b?purge=1", { method: "DELETE", headers: admin }); assert(dpg.body.ok && dpg.body.deleted && dpg.body.purged >= 1, JSON.stringify(dpg.body));
+  assert.strictEqual((await fetch(`${base}/s/BRetain12345678`)).status, 404);
+  assert.strictEqual((await j("/admin/api/studios", { method: "DELETE", headers: admin })).status, 404);
+  // studio muncul lagi otomatis begitu booth menghubungi (kasir pemilik daftar)
+  assert((await fetch(`${base}/api/v1/ping`, { headers: Bh })).ok);
+  assert((await j("/admin/api/studios", { headers: admin })).body.studios.some((x) => x.key === "studio b"));
+  // nama kembar digabung: ubah nama "Studio Cadangan" jadi "studio a" -> sesi & catatan ikut studio yang sudah ada
+  const mg = await j("/admin/api/studios/studio%20cadangan", { method: "POST", headers: admin, body: JSON.stringify({ name: "STUDIO A" }) });
+  assert(mg.body.ok && mg.body.merged === true, JSON.stringify(mg.body));
+  assert(!(await j("/admin/api/studios", { headers: admin })).body.studios.some((x) => x.key === "studio cadangan"));
+  // nama diganti admin dikunci; nama diganti di kasir (token sama, nama beda) ikut berubah bila tidak dikunci
+  assert.strictEqual((await j("/admin/api/studios/studio%20a", { method: "POST", headers: admin, body: JSON.stringify({ name: "Studio Alpha" }) })).status, 200);
+  assert.strictEqual((await j("/admin/api/studios", { headers: admin })).body.studios.find((x) => x.key === "studio alpha").name, "Studio Alpha");
+  assert((await fetch(`${base}/api/v1/ping`, { headers: A })).ok);
+  assert((await j("/admin/api/studios", { headers: admin })).body.studios.some((x) => x.key === "studio alpha" && x.nameLocked), "nama admin tetap meski kasir mengirim nama lama");
+  process.env.STUDIO_TOKENS = "tokenstudioA0000000:Studio A,tokenstudioB0000000:Studio Bee";
+  assert((await fetch(`${base}/api/v1/ping`, { headers: Bh })).ok);
+  assert((await j("/admin/api/studios", { headers: admin })).body.studios.some((x) => x.key === "studio bee" && x.name === "Studio Bee"), "nama baru dari kasir ikut");
+  assert((await j("/admin/api/state", { headers: admin })).body.studios.length >= 2);
+  console.log("ok  admin studio: status online/offline, tambah, edit, masa simpan per studio, putuskan/sambungkan, hapus, gabung nama, ikut nama kasir");
+
   // bagi rata antar bucket sama-prioritas
   const used = (await j("/admin/api/state", { headers: admin })).body.buckets; assert(used.every((b) => b.usedGB >= 0));
   // kedaluwarsa + hapus otomatis

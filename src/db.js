@@ -54,6 +54,23 @@ CREATE INDEX IF NOT EXISTS idx_sessions_exp ON sessions(expires_at);
 
 try { db.exec("ALTER TABLE sessions ADD COLUMN manual INTEGER NOT NULL DEFAULT 0"); } catch { /* sudah ada */ }
 
+// Daftar studio yang dikenal galeri. Sumber nama & token tetap KASIR; di sini hanya status pantauan + pengaturan sisi galeri.
+db.exec(`CREATE TABLE IF NOT EXISTS studios (
+  skey TEXT PRIMARY KEY,            -- nama huruf kecil (Emma = emma)
+  name TEXT NOT NULL,               -- nama tampilan
+  note TEXT NOT NULL DEFAULT '',
+  blocked INTEGER NOT NULL DEFAULT 0,
+  retention_days INTEGER,           -- NULL = ikut pengaturan umum
+  name_locked INTEGER NOT NULL DEFAULT 0, -- 1 = nama diubah admin, jangan ikut berubah otomatis dari kasir
+  token_hash TEXT,
+  first_seen_at INTEGER, last_seen_at INTEGER, last_ip TEXT, last_event TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_studios_token ON studios(token_hash);`);
+// Isi dari sesi yang sudah ada (aman diulang): nama terbaru jadi nama tampilan
+db.exec(`INSERT OR IGNORE INTO studios (skey, name, created_at, first_seen_at, last_seen_at)
+  SELECT lower(trim(studio)), studio, MIN(created_at), MIN(created_at), NULL FROM sessions WHERE trim(studio) <> '' GROUP BY lower(trim(studio))`);
+
 const getSetting = (k, def) => { const r = db.prepare("SELECT v FROM settings WHERE k = ?").get(k); return r ? r.v : def; };
 const setSetting = (k, v) => db.prepare("INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").run(k, String(v));
 const retentionDays = () => Math.max(1, Math.min(365, Number(getSetting("retention_days", process.env.RETENTION_DAYS || 7)) || 7));

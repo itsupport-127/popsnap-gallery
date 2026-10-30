@@ -49,6 +49,52 @@ function pickBucket(size, exclude = null) {
 }
 const bucketById = (id) => db.prepare("SELECT * FROM buckets WHERE id = ?").get(id);
 
+// ---------- Studio: status pantauan, blokir, nama ----------
+const skey = (n) => String(n || "").trim().toLowerCase();
+const bearerOf = (req) => (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+const ONLINE_MS = 5 * 60 * 1000, RECENT_MS = 60 * 60 * 1000;
+const studioStatus = (r) => (r.blocked ? "blocked" : !r.last_seen_at ? "never" : now() - r.last_seen_at < ONLINE_MS ? "online" : now() - r.last_seen_at < RECENT_MS ? "recent" : "offline");
+/** Pindahkan / ganti nama studio (juga semua sesinya). Nama sudah dipakai studio lain = digabung ke studio itu. */
+function renameStudio(oldKey, newName, { lock = false } = {}) {
+  const name = String(newName).replace(/[<>]/g, "").trim().slice(0, 60);
+  const row = db.prepare("SELECT * FROM studios WHERE skey = ?").get(oldKey);
+  if (!row || !name) return null;
+  const nk = skey(name);
+  const target = nk !== oldKey ? db.prepare("SELECT * FROM studios WHERE skey = ?").get(nk) : null;
+  if (target) { // gabung
+    db.prepare("UPDATE sessions SET studio = ? WHERE lower(trim(studio)) = ?").run(target.name, oldKey);
+    db.prepare("UPDATE studios SET last_seen_at = MAX(COALESCE(last_seen_at, 0), ?), first_seen_at = MIN(COALESCE(first_seen_at, ?), ?), note = CASE WHEN note = '' THEN ? ELSE note END, blocked = MAX(blocked, ?) WHERE skey = ?")
+      .run(row.last_seen_at || 0, row.first_seen_at || now(), row.first_seen_at || now(), row.note, row.blocked, nk);
+    db.prepare("DELETE FROM studios WHERE skey = ?").run(oldKey);
+    return { merged: true, row: db.prepare("SELECT * FROM studios WHERE skey = ?").get(nk) };
+  }
+  db.prepare("UPDATE sessions SET studio = ? WHERE lower(trim(studio)) = ?").run(name, oldKey);
+  db.prepare("UPDATE studios SET skey = ?, name = ?, name_locked = CASE WHEN ? THEN 1 ELSE name_locked END WHERE skey = ?").run(nk, name, lock ? 1 : 0, oldKey);
+  return { merged: false, row: db.prepare("SELECT * FROM studios WHERE skey = ?").get(nk) };
+}
+/** Pastikan studio ada di daftar (tanpa mencatat 'terlihat'). */
+function ensureStudio(name) {
+  const n = String(name).replace(/[<>]/g, "").trim().slice(0, 60) || "Studio", k = skey(n);
+  db.prepare("INSERT OR IGNORE INTO studios (skey, name, created_at) VALUES (?, ?, ?)").run(k, n, now());
+  return db.prepare("SELECT * FROM studios WHERE skey = ?").get(k);
+}
+/** Dipanggil tiap booth menghubungi galeri: catat 'terlihat', ikuti nama dari kasir. Mengembalikan baris studio. */
+function touchStudio(a, req, event) {
+  const th = crypto.createHash("sha256").update(bearerOf(req)).digest("hex"), k = skey(a.studio), t = now();
+  let row = db.prepare("SELECT * FROM studios WHERE token_hash = ?").get(th);
+  if (row && row.skey !== k && !row.name_locked) { const r = renameStudio(row.skey, a.studio); row = r ? r.row : row; } // nama di kasir diganti -> ikut
+  if (!row) row = ensureStudio(a.studio);
+  db.prepare("UPDATE studios SET token_hash = ?, first_seen_at = COALESCE(first_seen_at, ?), last_seen_at = ?, last_ip = ?, last_event = ? WHERE skey = ?")
+    .run(th, t, t, String(req.headers["x-real-ip"] || req.ip || "").slice(0, 64), event, row.skey);
+  return db.prepare("SELECT * FROM studios WHERE skey = ?").get(row.skey);
+}
+/** Catat + tolak bila studio diputus admin. null = sudah dibalas 403. */
+function studioGuard(a, req, res, event) {
+  const row = touchStudio(a, req, event);
+  if (row.blocked) { res.status(403).json({ error: "Studio ini diputus dari galeri oleh admin. Hubungi admin.", blocked: true }); return null; }
+  return row;
+}
+
 // ---------- API booth ----------
 app.use("/assets", express.static(path.join(__dirname, "..", "public"), { maxAge: "7d", index: false }));
 app.use(["/api", "/admin/api"], express.json({ limit: "1mb" }));
@@ -56,8 +102,9 @@ app.get("/api/v1/ping", async (req, res) => {
   try {
     const a = await auth.verify((req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
     if (!a) return res.status(401).json({ ok: false, error: "Token tidak valid." });
+    const st = studioGuard(a, req, res, "ping"); if (!st) return;
     const buckets = db.prepare("SELECT COUNT(*) n FROM buckets WHERE enabled = 1").get().n;
-    res.json({ ok: true, studio: a.studio, buckets, retentionDays: retentionDays() });
+    res.json({ ok: true, studio: st.name, buckets, retentionDays: st.retention_days || retentionDays() });
   } catch (e) { res.status(e.status || 500).json({ ok: false, error: e.message }); }
 });
 
@@ -67,7 +114,7 @@ function registerSession(studio, { token, mode, studioCode, files, retry, manual
   if (!TOKEN_RE.test(String(token))) return { status: 400, error: "Token sesi tidak valid." };
   if (!Array.isArray(files) || files.length > MAX_FILES) return { status: 400, error: "Daftar file tidak valid." };
   let sess = db.prepare("SELECT * FROM sessions WHERE token = ?").get(token);
-  if (sess && sess.studio !== studio) {
+  if (sess && skey(sess.studio) !== skey(studio)) {
     if (sess.manual && !manual) { db.prepare("UPDATE sessions SET studio = ?, manual = 0 WHERE token = ?").run(studio, token); sess.studio = studio; } // booth menyusul: ambil alih sesi yang diunggah manual
     else if (!manual) return { status: 409, error: "Token sesi sudah dipakai studio lain." };
     else studio = sess.studio; // unggah manual untuk sesi yang sudah ada: ikut studio yang tercatat
@@ -75,7 +122,7 @@ function registerSession(studio, { token, mode, studioCode, files, retry, manual
   if (!sess) {
     const t = now();
     db.prepare("INSERT INTO sessions (token, studio, studio_code, mode, created_at, expires_at, manual) VALUES (?, ?, ?, ?, ?, ?, ?)")
-      .run(token, studio, safe(studioCode, 20), String(mode || "photo").slice(0, 12), t, t + retentionDays() * 86400000, manual ? 1 : 0);
+      .run(token, studio, safe(studioCode, 20), String(mode || "photo").slice(0, 12), t, t + (db.prepare("SELECT retention_days r FROM studios WHERE skey = ?").get(skey(studio))?.r || retentionDays()) * 86400000, manual ? 1 : 0);
     sess = db.prepare("SELECT * FROM sessions WHERE token = ?").get(token);
   }
   const uploads = [], skipped = [];
@@ -103,7 +150,8 @@ app.post("/api/v1/sessions", async (req, res) => {
   try {
     const a = await auth.verify((req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
     if (!a) return res.status(401).json({ error: "Token tidak valid." });
-    const r = registerSession(a.studio, req.body || {});
+    const st = studioGuard(a, req, res, "sessions"); if (!st) return;
+    const r = registerSession(st.name, req.body || {});
     if (r.error) return res.status(r.status).json({ error: r.error });
     res.json(r.body);
   } catch (e) { console.error("[sessions]", e.message); res.status(e.status || 500).json({ error: e.message }); }
@@ -114,7 +162,8 @@ app.post("/api/v1/sessions/:token/done", async (req, res) => {
     const a = await auth.verify((req.headers.authorization || "").replace(/^Bearer\s+/i, ""));
     if (!a) return res.status(401).json({ error: "Token tidak valid." });
     const row = db.prepare("SELECT f.*, s.studio FROM files f JOIN sessions s ON s.token = f.token WHERE f.token = ? AND f.fid = ?").get(req.params.token, safe(req.body?.fid, 30));
-    if (!row || row.studio !== a.studio) return res.status(404).json({ error: "File tidak ditemukan." });
+    if (!row || skey(row.studio) !== skey(a.studio)) return res.status(404).json({ error: "File tidak ditemukan." });
+    if (!studioGuard(a, req, res, "upload")) return;
     const b = bucketById(row.bucket_id);
     const r = await s3.call(b, "HEAD", row.key, { timeoutMs: 15000 }).catch(() => null);
     if (!r || !r.ok) return res.status(409).json({ error: `File belum ada di cloud (${r ? r.status : "tidak terjangkau"}).` });
@@ -134,7 +183,8 @@ app.delete("/api/v1/sessions/:token", async (req, res) => {
     if (!a) return res.status(401).json({ error: "Token tidak valid." });
     const token = normToken(req.params.token);
     const s = TOKEN_RE.test(String(token)) ? db.prepare("SELECT studio FROM sessions WHERE token = ?").get(token) : null;
-    if (!s || s.studio !== a.studio) return res.status(404).json({ error: "Sesi tidak ditemukan." });
+    if (!s || skey(s.studio) !== skey(a.studio)) return res.status(404).json({ error: "Sesi tidak ditemukan." });
+    if (!studioGuard(a, req, res, "delete")) return;
     db.prepare("UPDATE sessions SET expires_at = ? WHERE token = ?").run(now() - 1000, token); // langsung kedaluwarsa
     const gone = await purgeSession(token);
     res.json({ ok: true, deleted: gone });
@@ -295,7 +345,7 @@ app.post("/admin/api/upload/prepare", adminAuth, (req, res) => {
   const b = req.body || {};
   const studio = String(b.studio || "").trim().slice(0, 60);
   if (!studio) return res.status(400).json({ error: "Nama studio wajib diisi." });
-  const r = registerSession(studio, { token: b.token, mode: b.mode, studioCode: b.studioCode, files: b.files, retry: b.retry, manual: true });
+  const r = registerSession(ensureStudio(studio).name, { token: b.token, mode: b.mode, studioCode: b.studioCode, files: b.files, retry: b.retry, manual: true });
   if (r.error) return res.status(r.status).json({ error: r.error });
   res.json({ ...r.body, uploads: r.body.uploads.map((u) => ({ fid: u.fid, path: `/admin/api/upload/${b.token}/${safe(u.fid, 30)}`, contentType: u.contentType })) });
 });
@@ -324,9 +374,62 @@ app.get("/admin/api/state", adminAuth, (_req, res) => {
     retentionDays: retentionDays(), zipEnabled: zipEnabled(), zipMode: zipMode(), publicUrl: PUBLIC_URL(),
     buckets: db.prepare("SELECT * FROM buckets ORDER BY priority, id").all().map((b) => maskB(b, used)),
     stats: { sessions: db.prepare("SELECT COUNT(*) n FROM sessions").get().n, files: db.prepare("SELECT COUNT(*) n FROM files WHERE state = 'ok'").get().n, pending: db.prepare("SELECT COUNT(*) n FROM files WHERE state = 'pending'").get().n },
-    studios: db.prepare("SELECT studio, MAX(studio_code) code, COUNT(*) sessions, MAX(created_at) last FROM sessions GROUP BY studio ORDER BY last DESC").all(),
+    studios: db.prepare("SELECT st.name studio, (SELECT MAX(s.studio_code) FROM sessions s WHERE lower(trim(s.studio)) = st.skey) code, (SELECT COUNT(*) FROM sessions s WHERE lower(trim(s.studio)) = st.skey) sessions, COALESCE(st.last_seen_at, 0) last FROM studios st ORDER BY last DESC, st.name").all(),
   });
 });
+// ---- Kelola studio: pantau online/offline, edit, gabung, putuskan/sambungkan, hapus ----
+const studioRow = (r) => ({
+  key: r.skey, name: r.name, note: r.note, blocked: !!r.blocked, status: studioStatus(r), retentionDays: r.retention_days || null,
+  firstSeenAt: r.first_seen_at || null, lastSeenAt: r.last_seen_at || null, lastEvent: r.last_event || "", lastIp: r.last_ip || "",
+  sessions: r.sessions || 0, files: r.files || 0, bytes: r.bytes || 0, pending: r.pending || 0, lastUploadAt: r.last_upload || null, nameLocked: !!r.name_locked,
+});
+const studioList = () => db.prepare(`SELECT st.*,
+  (SELECT COUNT(*) FROM sessions s WHERE lower(trim(s.studio)) = st.skey) sessions,
+  (SELECT COUNT(*) FROM files f JOIN sessions s ON s.token = f.token WHERE lower(trim(s.studio)) = st.skey AND f.state = 'ok') files,
+  (SELECT COUNT(*) FROM files f JOIN sessions s ON s.token = f.token WHERE lower(trim(s.studio)) = st.skey AND f.state = 'pending') pending,
+  (SELECT COALESCE(SUM(f.size), 0) FROM files f JOIN sessions s ON s.token = f.token WHERE lower(trim(s.studio)) = st.skey AND f.state = 'ok') bytes,
+  (SELECT MAX(f.uploaded_at) FROM files f JOIN sessions s ON s.token = f.token WHERE lower(trim(s.studio)) = st.skey) last_upload
+  FROM studios st ORDER BY (st.last_seen_at IS NULL), st.last_seen_at DESC, st.name`).all();
+app.get("/admin/api/studios", adminAuth, (_req, res) => {
+  const list = studioList().map(studioRow);
+  res.json({ now: now(), onlineMs: ONLINE_MS, studios: list, counts: { online: list.filter((x) => x.status === "online").length, total: list.length, blocked: list.filter((x) => x.blocked).length } });
+});
+const retOf = (v) => { if (v === "" || v == null) return null; const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(1, Math.min(365, n)) : null; };
+app.post("/admin/api/studios", adminAuth, (req, res) => {
+  const b = req.body || {}, name = String(b.name || "").replace(/[<>]/g, "").trim().slice(0, 60);
+  if (!name) return res.status(400).json({ error: "Nama studio wajib diisi." });
+  if (db.prepare("SELECT 1 FROM studios WHERE skey = ?").get(skey(name))) return res.status(409).json({ error: "Studio dengan nama itu sudah ada." });
+  const row = ensureStudio(name);
+  db.prepare("UPDATE studios SET note = ?, retention_days = ?, name_locked = 1 WHERE skey = ?").run(String(b.note || "").slice(0, 200), retOf(b.retentionDays), row.skey);
+  res.json({ ok: true });
+});
+app.post("/admin/api/studios/:key", adminAuth, (req, res) => {
+  const key = skey(req.params.key), b = req.body || {};
+  let row = db.prepare("SELECT * FROM studios WHERE skey = ?").get(key);
+  if (!row) return res.status(404).json({ error: "Studio tidak ditemukan." });
+  let merged = false;
+  if (b.name != null && String(b.name).trim() && String(b.name).trim() !== row.name) {
+    const r = renameStudio(key, b.name, { lock: true }); if (!r) return res.status(400).json({ error: "Nama tidak valid." });
+    merged = r.merged; row = r.row;
+  }
+  if (b.note != null) db.prepare("UPDATE studios SET note = ? WHERE skey = ?").run(String(b.note).slice(0, 200), row.skey);
+  if (b.retentionDays !== undefined) db.prepare("UPDATE studios SET retention_days = ? WHERE skey = ?").run(retOf(b.retentionDays), row.skey);
+  if (b.blocked != null) db.prepare("UPDATE studios SET blocked = ? WHERE skey = ?").run(b.blocked ? 1 : 0, row.skey);
+  res.json({ ok: true, merged });
+});
+app.delete("/admin/api/studios/:key", adminAuth, async (req, res) => {
+  const key = skey(req.params.key), row = db.prepare("SELECT * FROM studios WHERE skey = ?").get(key);
+  if (!row) return res.json({ ok: true });
+  if (row.blocked) return res.status(400).json({ error: "Studio sedang diputus. Sambungkan dulu, atau biarkan tetap terputus supaya booth-nya terblokir." });
+  const toks = db.prepare("SELECT token FROM sessions WHERE lower(trim(studio)) = ?").all(key).map((x) => x.token);
+  if (toks.length && !(req.query.purge === "1")) return res.status(409).json({ error: `Studio ini masih punya ${toks.length} link.`, sessions: toks.length });
+  let left = 0;
+  for (const t of toks) { db.prepare("UPDATE sessions SET expires_at = ? WHERE token = ?").run(now() - 1000, t); if (!(await purgeSession(t))) left++; }
+  if (left) return res.json({ ok: true, deleted: false, left });
+  db.prepare("DELETE FROM studios WHERE skey = ?").run(key);
+  res.json({ ok: true, deleted: true, purged: toks.length });
+});
+
 // ---- Link pelanggan (sesi): lihat semua, cari, ubah masa berlaku / nama studio, hapus ----
 const likeEsc = (x) => String(x).replace(/[\\%_]/g, (c) => "\\" + c);
 const sessRow = (r) => ({ token: r.token, studio: r.studio, studioCode: r.studio_code || "", mode: r.mode || "", manual: !!r.manual, createdAt: r.created_at, expiresAt: r.expires_at, files: r.files, pending: r.pending, bytes: r.bytes });
