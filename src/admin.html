@@ -70,6 +70,19 @@ dialog h2{margin:0 0 12px;font-family:Fredoka,"Plus Jakarta Sans",sans-serif;fon
 .cb-list li.cur{color:var(--red-dark)}.cb-list li.cur::after{content:"\2713";font-weight:800}
 .cb-list li.new,.cb-list li.none{color:var(--muted);cursor:default;font-weight:600}.cb-list li.new{cursor:pointer;color:var(--ink)}
 dialog{overflow:visible}
+#cf{padding:0;max-width:min(92vw,420px);width:100%;overflow:hidden}
+#cf .cfb{padding:24px 24px 6px;text-align:center}
+#cf .ico{width:56px;height:56px;margin:0 auto 12px;border-radius:50%;display:grid;place-items:center;background:#FDE3E7;border:2px solid #000;box-shadow:0 3px 0 #000}
+#cf .ico svg{width:26px;height:26px;fill:none;stroke:var(--red);stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+#cf.ask .ico{background:var(--cream)}#cf.ask .ico svg{stroke:var(--ink)}
+#cf h2{margin:0 0 6px;font-size:21px}#cf p{margin:0;color:var(--muted);font-size:14px;line-height:1.5}
+#cf .cfa{display:flex;gap:10px;justify-content:center;padding:18px 24px 22px}
+#cf .cfa .btn{min-width:110px}
+button.dg{background:var(--red);color:#fff}
+#toasts{position:fixed;right:16px;bottom:16px;z-index:200;display:flex;flex-direction:column;gap:8px;max-width:min(92vw,380px)}
+.toast{background:#fff;border:2px solid #000;border-radius:14px;padding:11px 14px;font-size:14px;font-weight:600;box-shadow:4px 4px 0 rgba(0,0,0,.9);animation:tin .2s ease}
+.toast.bad{border-color:var(--bad);color:var(--bad)}
+@keyframes tin{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
 .ham{display:none}
 @media (max-width:860px){
  .layout{display:block}
@@ -144,6 +157,8 @@ Pilih <b>folder tanggal</b> (mis. <code>2026-10-23</code>) untuk mengunggah bany
   <p style="margin:10px 0 0"><button class="btn s" id="l_more" type="button" onclick="loadL(false)" hidden>Muat lagi</button></p>
  </div>
 </section>
+<dialog id="cf" aria-labelledby="cf_t"><div class="cfb"><div class="ico"><svg viewBox="0 0 24 24" id="cf_i"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-12M9 7V4h6v3"/></svg></div><h2 id="cf_t"></h2><p id="cf_p"></p></div><div class="cfa"><button class="btn s" type="button" id="cf_no">Batal</button><button class="btn dg" type="button" id="cf_ok">Hapus</button></div></dialog>
+<div id="toasts" aria-live="polite"></div>
 <dialog id="l_dlg"><h2 id="l_dt">Atur link</h2>
  <label for="l_exp">Berlaku sampai</label><input id="l_exp" type="datetime-local">
  <div class="chips"><span class="muted" style="align-self:center">Dari sekarang:</span>
@@ -203,7 +218,7 @@ function hideF(){resetF();$('bform').hidden=true;$('addb').hidden=false}
 function resetF(){editId=null;$('ftitle').textContent='Tambah bucket';for(const k of['name','endpoint','bucket','accessKey','secretKey'])$('f_'+k).value='';$('f_region').value='auto';$('f_priority').value=10;$('f_quotaGB').value=10;$('f_enabled').value='1';$('f_sec').textContent='';$('fmsg').textContent=''}
 async function saveB(){const b={id:editId};for(const k of['name','endpoint','region','bucket','accessKey','secretKey','priority','quotaGB'])b[k]=$('f_'+k).value;b.enabled=$('f_enabled').value==='1';const r=await api('/admin/api/buckets',{method:'POST',body:JSON.stringify(b)});$('fmsg').textContent=r.ok?'Tersimpan. Klik "Tes" untuk memastikan.':r.error;$('fmsg').className=r.ok?'ok':'bad';if(r.ok){resetF();load();setTimeout(hideF,1200)}}
 async function testB(id){$('t'+id).textContent='menguji…';const r=await api('/admin/api/buckets/'+id+'/test',{method:'POST'});$('t'+id).textContent=r.ok?'✔ tulis & baca berhasil':'✘ '+r.error;$('t'+id).className=r.ok?'ok':'bad'}
-async function delB(id){if(!confirm('Hapus bucket ini? Jika sudah berisi file, hanya dinonaktifkan.'))return;await api('/admin/api/buckets/'+id,{method:'DELETE'});load()}
+async function delB(id){if(!await ask('Hapus bucket ini?','Jika bucket sudah berisi file, bucket hanya dinonaktifkan (file tidak dihapus).',{ok:'Hapus bucket'}))return;await api('/admin/api/buckets/'+id,{method:'DELETE'});load()}
 
 let knownStudios=[];
 const rnd=()=>{const a=new Uint8Array(10);crypto.getRandomValues(a);return Array.from(a,x=>'23456789ABCDEFGHJKLMNPQRSTUVWXYZ'[x%32]).join('')};
@@ -253,6 +268,14 @@ async function startUpload(list){
 function render(rows){$('u_t').innerHTML='<tr><th>Sesi</th><th>File</th><th>Status</th><th>Link</th></tr>'+rows.map(r=>`<tr><td>${r.s.label}${r.s.isNew?'<div class="muted">link baru</div>':''}</td><td>${r.s.files.length}</td><td class="${r.state.startsWith('✘')?'bad':r.state.startsWith('✔')?'ok':''}">${r.state}</td><td>${r.link?`<a href="${r.link}" target="_blank">${r.link}</a> <button class="btn s sm" onclick="navigator.clipboard.writeText('${r.link}')">Salin</button>`:''}</td></tr>`).join('')}
 
 
+
+// ---- dialog konfirmasi & pemberitahuan bertema (pengganti confirm()/alert() bawaan browser) ----
+function ask(title,text,{ok='Hapus',danger=true}={}){return new Promise(res=>{const d=$('cf');$('cf_t').textContent=title;$('cf_p').textContent=text;$('cf_ok').textContent=ok;$('cf_ok').className='btn '+(danger?'dg':'');d.className=danger?'':'ask';
+ let done=false;const fin=v=>{if(done)return;done=true;d.close();res(v)};
+ $('cf_ok').onclick=()=>fin(true);$('cf_no').onclick=()=>fin(false);d.oncancel=e=>{e.preventDefault();fin(false)};d.onclick=e=>{if(e.target===d)fin(false)};
+ d.showModal();$('cf_no').focus()})}
+function toast(msg,bad){const t=document.createElement('div');t.className='toast'+(bad?' bad':'');t.textContent=msg;$('toasts').appendChild(t);setTimeout(()=>{t.style.transition='opacity .3s';t.style.opacity='0';setTimeout(()=>t.remove(),300)},bad?6000:4500)}
+
 // ---- Link pelanggan ----
 const he=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let L={rows:[],total:0,pub:'',sel:new Set(),editTok:null},lTimer=null;
@@ -294,11 +317,11 @@ async function saveL(){const x=L.rows.find(r=>r.token===L.editTok);if(!x)return;
  const r=await api('/admin/api/sessions/'+L.editTok,{method:'POST',body:JSON.stringify(body)});
  if(r.ok){$('l_dlg').close();const keep=L.rows.length;L.rows=[];L.sel.clear();await loadMore(keep);load()}else{$('l_msg').textContent=r.error||'Gagal menyimpan';$('l_msg').className='bad'}}
 async function loadMore(n){const q=new URLSearchParams({q:$('l_q').value.trim(),studio:$('l_studio').value,source:$('l_source').value,limit:Math.min(100,Math.max(30,n)),offset:0});const r=await api('/admin/api/sessions?'+q);if(r&&r.sessions){L.total=r.total;L.pub=r.publicUrl||'';L.rows=r.sessions;drawL()}}
-async function delL(t){if(!confirm('Hapus link '+fmtTok(t)+'? Halaman langsung tidak bisa dibuka dan semua file di cloud dihapus. Tidak bisa dibatalkan.'))return;
- const r=await api('/admin/api/sessions/'+t,{method:'DELETE'});if(!r.ok)return alert(r.error||'Gagal menghapus');if(!r.deleted)alert('Link sudah mati. Sebagian file di cloud belum terhapus, akan dibersihkan otomatis.');L.sel.delete(t);await loadMore(L.rows.length);load()}
-async function bulkDel(){const tk=[...L.sel];if(!tk.length||!confirm('Hapus '+tk.length+' link terpilih? Semua file di cloud ikut dihapus. Tidak bisa dibatalkan.'))return;
- const r=await api('/admin/api/sessions-bulk',{method:'POST',body:JSON.stringify({action:'delete',tokens:tk})});if(!r.ok)return alert(r.error||'Gagal');if(r.pending)alert(r.pending+' link sebagian filenya belum terhapus dari cloud; dibersihkan otomatis nanti.');L.sel.clear();await loadMore(L.rows.length);load()}
-async function bulkExt(d){const tk=[...L.sel];if(!tk.length)return;const r=await api('/admin/api/sessions-bulk',{method:'POST',body:JSON.stringify({action:'extend',days:d,tokens:tk})});if(!r.ok)return alert(r.error||'Gagal');await loadMore(L.rows.length)}
+async function delL(t){if(!await ask('Hapus link '+fmtTok(t)+'?','Halaman langsung tidak bisa dibuka dan semua file di cloud dihapus. Tindakan ini tidak bisa dibatalkan.',{ok:'Ya, hapus'}))return;
+ const r=await api('/admin/api/sessions/'+t,{method:'DELETE'});if(!r.ok)return toast(r.error||'Gagal menghapus',1);toast(r.deleted?'Link dihapus.':'Link sudah mati. Sebagian file di cloud belum terhapus, akan dibersihkan otomatis.');L.sel.delete(t);await loadMore(L.rows.length);load()}
+async function bulkDel(){const tk=[...L.sel];if(!tk.length||!await ask('Hapus '+tk.length+' link terpilih?','Semua file di cloud ikut dihapus dan halaman pelanggan langsung tidak bisa dibuka. Tindakan ini tidak bisa dibatalkan.',{ok:'Hapus '+tk.length+' link'}))return;
+ const r=await api('/admin/api/sessions-bulk',{method:'POST',body:JSON.stringify({action:'delete',tokens:tk})});if(!r.ok)return toast(r.error||'Gagal',1);toast(r.done+' link dihapus.'+(r.pending?' '+r.pending+' link sebagian filenya belum terhapus dari cloud; dibersihkan otomatis nanti.':''));L.sel.clear();await loadMore(L.rows.length);load()}
+async function bulkExt(d){const tk=[...L.sel];if(!tk.length)return;const r=await api('/admin/api/sessions-bulk',{method:'POST',body:JSON.stringify({action:'extend',days:d,tokens:tk})});if(!r.ok)return toast(r.error||'Gagal',1);toast('Masa berlaku '+r.done+' link diperpanjang '+d+' hari.');await loadMore(L.rows.length)}
 $('l_q').addEventListener('input',()=>{clearTimeout(lTimer);lTimer=setTimeout(()=>loadL(true),300)});
 $('l_studio').addEventListener('change',()=>loadL(true));$('l_source').addEventListener('change',()=>loadL(true));
 function fillStudios(){const cur=$('l_studio').value;$('l_studio').innerHTML='<option value="">Semua studio</option>'+knownStudios.map(x=>`<option value="${he(x.studio)}">${he(x.studio)}</option>`).join('');$('l_studio').value=cur}
