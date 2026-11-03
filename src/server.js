@@ -41,13 +41,45 @@ function usedBytes() {
 /** Bucket aktif dengan prioritas terkecil yang masih muat. `exclude` = bucket yang barusan gagal. */
 function pickBucket(size, exclude = null) {
   const used = usedBytes();
-  const list = db.prepare("SELECT * FROM buckets WHERE enabled = 1 ORDER BY priority, id").all()
-    .filter((b) => b.id !== exclude && (!b.quota_bytes || (used.get(b.id) || 0) + size <= b.quota_bytes));
+  const fits = (b) => b.id !== exclude && (!b.quota_bytes || (used.get(b.id) || 0) + size <= b.quota_bytes);
+  const all = db.prepare("SELECT * FROM buckets WHERE enabled = 1 ORDER BY priority, id").all();
+  let list = all.filter((b) => fits(b) && b.health !== "bad"); // bucket yang gagal tes dilewati...
+  if (!list.length) list = all.filter(fits);                    // ...kecuali semuanya bermasalah: tetap coba
   if (!list.length) return null;
   const top = list[0].priority; // sama prioritas -> yang paling kosong dulu (bagi rata)
   return list.filter((b) => b.priority === top).sort((a, b) => (used.get(a.id) || 0) - (used.get(b.id) || 0))[0];
 }
 const bucketById = (id) => db.prepare("SELECT * FROM buckets WHERE id = ?").get(id);
+
+// ---------- Kesehatan bucket: tes tulis/baca/hapus, ditandai sehat / bermasalah ----------
+async function testBucket(b) {
+  const t0 = Date.now(), key = `_test/${crypto.randomBytes(6).toString("hex")}.txt`, body = "popsnap-test";
+  try {
+    const put = await s3.call(b, "PUT", key, { body, headers: { "Content-Type": "text/plain" }, timeoutMs: 15000 });
+    if (!put.ok) return { ok: false, step: "tulis", ms: Date.now() - t0, error: put.status === 403 ? "Access key / secret key salah atau tidak punya izin Object Read & Write (HTTP 403)." : put.status === 404 ? "Nama bucket atau endpoint tidak ditemukan (HTTP 404)." : `Gagal menulis (HTTP ${put.status}).` };
+    const get = await s3.call(b, "GET", key, { timeoutMs: 15000 }); const txt = await get.text();
+    await s3.call(b, "DELETE", key, { timeoutMs: 15000 }).catch(() => {});
+    const ok = get.ok && txt === body;
+    return { ok, step: "baca", ms: Date.now() - t0, error: ok ? null : `Gagal membaca (HTTP ${get.status})` };
+  } catch (e) { return { ok: false, ms: Date.now() - t0, error: e.name === "AbortError" ? "Timeout menghubungi endpoint." : `Tidak terhubung: ${e.cause?.code || e.message}` }; }
+}
+const healthJobs = new Map();
+/** Tes + simpan hasilnya di bucket. Satu tes per bucket pada satu waktu. */
+function checkBucket(b) {
+  if (healthJobs.has(b.id)) return healthJobs.get(b.id);
+  const job = testBucket(b).then((r) => {
+    db.prepare("UPDATE buckets SET health = ?, health_msg = ?, health_at = ?, fail_count = CASE WHEN ? THEN 0 ELSE fail_count END WHERE id = ?").run(r.ok ? "ok" : "bad", r.ok ? "" : String(r.error || "").slice(0, 200), now(), r.ok ? 1 : 0, b.id);
+    return r;
+  }).finally(() => healthJobs.delete(b.id));
+  healthJobs.set(b.id, job); return job;
+}
+/** Booth melapor unggah ke bucket ini gagal (minta bucket lain): hitung, lalu tes cepat di latar belakang. */
+function noteBucketFail(id) {
+  const b = bucketById(id); if (!b) return;
+  db.prepare("UPDATE buckets SET fail_count = fail_count + 1 WHERE id = ?").run(id);
+  if (!b.health_at || now() - b.health_at > 20000) setImmediate(() => checkBucket(bucketById(id)).catch(() => {}));
+}
+const checkAllBuckets = async () => { for (const b of db.prepare("SELECT * FROM buckets WHERE enabled = 1").all()) await checkBucket(b).catch(() => {}); };
 
 // ---------- Studio: status pantauan, blokir, nama ----------
 const skey = (n) => String(n || "").trim().toLowerCase();
@@ -108,6 +140,21 @@ app.get("/api/v1/ping", async (req, res) => {
   } catch (e) { res.status(e.status || 500).json({ ok: false, error: e.message }); }
 });
 
+// Denyut booth: ±1 menit sekali + laporan singkat status sinkron (antrean / error) supaya admin bisa memantau.
+const cut = (v, n) => String(v ?? "").slice(0, n);
+app.post("/api/v1/heartbeat", async (req, res) => {
+  try {
+    const a = await auth.verify(bearerOf(req));
+    if (!a) return res.status(401).json({ ok: false, error: "Token tidak valid." });
+    const st = studioGuard(a, req, res, "heartbeat"); if (!st) return;
+    const b = req.body || {}, k = b.kasir && typeof b.kasir === "object" ? b.kasir : null;
+    const rep = { pending: Math.max(0, Math.round(Number(b.pendingSessions) || 0)), errors: Math.max(0, Math.round(Number(b.sessionsWithErrors) || 0)), lastError: cut(b.lastError, 200), lastOkAt: b.lastOkAt ? cut(b.lastOkAt, 40) : null, files: Math.max(0, Math.round(Number(b.filesUploaded) || 0)), app: cut(b.app, 40),
+      kasir: k ? { ok: k.ok !== false, error: cut(k.error, 200) } : null };
+    db.prepare("UPDATE studios SET sync_json = ?, sync_at = ? WHERE skey = ?").run(JSON.stringify(rep), now(), st.skey);
+    res.json({ ok: true, studio: st.name });
+  } catch (e) { res.status(e.status || 500).json({ ok: false, error: e.message }); }
+});
+
 /** Daftarkan sesi + file, kembalikan daftar yang perlu diunggah. Dipakai booth (token studio) dan unggah manual dari website (login admin). */
 // Izin foto dari tamu: bit 1 = boleh di sosmed, bit 2 = boleh dipajang di mading (3 = keduanya, 0 = tidak, NULL = belum dijawab)
 const normSocial = (v) => (v === null || v === undefined || v === "" ? undefined : Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 3 ? Number(v) : undefined);
@@ -137,6 +184,7 @@ function registerSession(studio, { token, mode, studioCode, files, retry, manual
     const row = db.prepare("SELECT * FROM files WHERE token = ? AND fid = ?").get(token, fid);
     if (row && row.state === "ok") continue;
     let bucket = row ? bucketById(row.bucket_id) : null;
+    if (retry === fid && row) noteBucketFail(row.bucket_id);
     if (!bucket || !bucket.enabled || retry === fid) {
       bucket = pickBucket(size, retry === fid && row ? row.bucket_id : null) || pickBucket(size);
       if (!bucket) return { status: 503, error: "Tidak ada penyimpanan cloud yang aktif / masih muat. Atur di halaman admin galeri." };
@@ -400,7 +448,7 @@ app.put("/admin/api/upload/:token/:fid", adminAuth, async (req, res) => {
     res.json({ ok: true });
   } catch (e) { res.status(500).json({ error: e.name === "AbortError" ? "Unggahan terlalu lama (timeout)." : e.message }); }
 });
-const maskB = (b, used) => ({ id: b.id, name: b.name, endpoint: b.endpoint, region: b.region, bucket: b.bucket, accessKey: b.access_key, secretSet: !!b.secret_key, enabled: !!b.enabled, priority: b.priority, quotaGB: b.quota_bytes ? Math.round(b.quota_bytes / 1e7) / 100 : 0, usedGB: Math.round((used.get(b.id) || 0) / 1e7) / 100 });
+const maskB = (b, used) => ({ id: b.id, name: b.name, endpoint: b.endpoint, region: b.region, bucket: b.bucket, accessKey: b.access_key, secretSet: !!b.secret_key, enabled: !!b.enabled, priority: b.priority, quotaGB: b.quota_bytes ? Math.round(b.quota_bytes / 1e7) / 100 : 0, usedGB: Math.round((used.get(b.id) || 0) / 1e7) / 100, health: b.health || "", healthMsg: b.health_msg || "", healthAt: b.health_at || null });
 app.get("/admin", adminAuth, (_req, res) => res.type("html").send(fs.readFileSync(path.join(__dirname, "admin.html"), "utf8")));
 app.get("/admin/api/state", adminAuth, (_req, res) => {
   const used = usedBytes();
@@ -411,11 +459,36 @@ app.get("/admin/api/state", adminAuth, (_req, res) => {
     studios: db.prepare("SELECT st.name studio, (SELECT MAX(s.studio_code) FROM sessions s WHERE lower(trim(s.studio)) = st.skey) code, (SELECT COUNT(*) FROM sessions s WHERE lower(trim(s.studio)) = st.skey) sessions, COALESCE(st.last_seen_at, 0) last FROM studios st ORDER BY last DESC, st.name").all(),
   });
 });
+// ---- Cek koneksi menyeluruh: bucket, kasir, dan laporan sinkron tiap booth ----
+app.post("/admin/api/diagnostics", adminAuth, async (_req, res) => {
+  const [buckets, kasir] = await Promise.all([
+    Promise.all(db.prepare("SELECT * FROM buckets WHERE enabled = 1 ORDER BY priority, id").all().map(async (b) => { const r = await checkBucket(b).catch((e) => ({ ok: false, error: e.message })); return { id: b.id, name: b.name, ok: !!r.ok, ms: r.ms || null, error: r.error || null }; })),
+    auth.checkKasir(),
+  ]);
+  const studios = studioList().map(studioRow).map((x) => {
+    const fresh = x.syncAt && now() - x.syncAt < 3 * ONLINE_MS;
+    let state = "unknown", note = "";
+    if (x.blocked) { state = "blocked"; note = "Diputus oleh admin"; }
+    else if (x.status === "never") note = "Belum pernah terhubung";
+    else if (x.status === "offline") { state = "down"; note = `Tidak menghubungi galeri sejak ${new Date(x.lastSeenAt).toLocaleString("id-ID")}`; }
+    else if (!fresh) note = "Terhubung, tapi belum melapor status sinkron (pasang denyut terbaru di photobox)";
+    else {
+      const r = x.sync || {};
+      if (r.kasir && r.kasir.ok === false) { state = "warn"; note = "Booth tidak bisa menyambung ke kasir: " + (r.kasir.error || "gagal"); }
+      else if (r.errors > 0) { state = "warn"; note = `${r.errors} sesi gagal diunggah${r.lastError ? ": " + r.lastError : ""}`; }
+      else if (r.pending > 0) { state = "queue"; note = `${r.pending} sesi menunggu diunggah`; }
+      else { state = "ok"; note = "Sinkron lancar, tidak ada antrean"; }
+    }
+    return { key: x.key, name: x.name, status: x.status, lastSeenAt: x.lastSeenAt, state, note };
+  });
+  res.json({ at: now(), buckets, kasir, studios });
+});
+
 // ---- Kelola studio: pantau online/offline, edit, gabung, putuskan/sambungkan, hapus ----
 const studioRow = (r) => ({
   key: r.skey, name: r.name, note: r.note, blocked: !!r.blocked, status: studioStatus(r), retentionDays: r.retention_days || null,
   firstSeenAt: r.first_seen_at || null, lastSeenAt: r.last_seen_at || null, lastEvent: r.last_event || "", lastIp: r.last_ip || "",
-  sessions: r.sessions || 0, files: r.files || 0, bytes: r.bytes || 0, pending: r.pending || 0, lastUploadAt: r.last_upload || null, nameLocked: !!r.name_locked,
+  sync: (() => { try { return r.sync_json ? JSON.parse(r.sync_json) : null; } catch { return null; } })(), syncAt: r.sync_at || null, sessions: r.sessions || 0, files: r.files || 0, bytes: r.bytes || 0, pending: r.pending || 0, lastUploadAt: r.last_upload || null, nameLocked: !!r.name_locked,
 });
 const studioList = () => db.prepare(`SELECT st.*,
   (SELECT COUNT(*) FROM sessions s WHERE lower(trim(s.studio)) = st.skey) sessions,
@@ -530,7 +603,7 @@ app.post("/admin/api/settings", adminAuth, (req, res) => {
   if (req.body?.zipEnabled != null) { const z = req.body.zipEnabled; setSetting("zip_enabled", z === false || z === "0" || z === 0 ? "0" : String(z) === "2" ? "2" : "1"); }
   res.json({ ok: true });
 });
-app.post("/admin/api/buckets", adminAuth, (req, res) => {
+app.post("/admin/api/buckets", adminAuth, async (req, res) => {
   const b = req.body || {};
   const endpoint = String(b.endpoint || "").trim().replace(/\/+$/, "");
   if (!/^https?:\/\/[^\s/]+/.test(endpoint) || !b.bucket || !b.accessKey) return res.status(400).json({ error: "Endpoint, nama bucket, dan access key wajib diisi." });
@@ -539,12 +612,14 @@ app.post("/admin/api/buckets", adminAuth, (req, res) => {
     const cur = bucketById(Number(b.id)); if (!cur) return res.status(404).json({ error: "Bucket tidak ada." });
     db.prepare("UPDATE buckets SET name=?, endpoint=?, region=?, bucket=?, access_key=?, secret_key=?, enabled=?, priority=?, quota_bytes=? WHERE id=?")
       .run(String(b.name || b.bucket).slice(0, 60), endpoint, String(b.region || "auto").trim(), String(b.bucket), String(b.accessKey), b.secretKey ? String(b.secretKey) : cur.secret_key, b.enabled === false ? 0 : 1, Math.round(Number(b.priority) || 10), quota, cur.id);
-    return res.json({ ok: true, id: cur.id });
+    const test = await checkBucket(bucketById(cur.id)).catch((e) => ({ ok: false, error: e.message }));
+    return res.json({ ok: true, id: cur.id, test });
   }
   if (!b.secretKey) return res.status(400).json({ error: "Secret key wajib diisi." });
   const r = db.prepare("INSERT INTO buckets (name, endpoint, region, bucket, access_key, secret_key, enabled, priority, quota_bytes) VALUES (?,?,?,?,?,?,?,?,?)")
     .run(String(b.name || b.bucket).slice(0, 60), endpoint, String(b.region || "auto").trim(), String(b.bucket), String(b.accessKey), String(b.secretKey), b.enabled === false ? 0 : 1, Math.round(Number(b.priority) || 10), quota);
-  res.json({ ok: true, id: Number(r.lastInsertRowid) });
+  const test = await checkBucket(bucketById(Number(r.lastInsertRowid))).catch((e) => ({ ok: false, error: e.message }));
+  res.json({ ok: true, id: Number(r.lastInsertRowid), test });
 });
 app.delete("/admin/api/buckets/:id", adminAuth, (req, res) => {
   const id = Number(req.params.id);
@@ -553,14 +628,7 @@ app.delete("/admin/api/buckets/:id", adminAuth, (req, res) => {
 });
 app.post("/admin/api/buckets/:id/test", adminAuth, async (req, res) => {
   const b = bucketById(Number(req.params.id)); if (!b) return res.status(404).json({ ok: false, error: "Bucket tidak ada." });
-  const key = `_test/${crypto.randomBytes(6).toString("hex")}.txt`, body = "popsnap-test";
-  try {
-    const put = await s3.call(b, "PUT", key, { body, headers: { "Content-Type": "text/plain" } });
-    if (!put.ok) return res.json({ ok: false, step: "tulis", error: `Gagal menulis (HTTP ${put.status}). Cek access key / izin Object Read & Write.` });
-    const get = await s3.call(b, "GET", key); const txt = await get.text();
-    await s3.call(b, "DELETE", key);
-    res.json({ ok: get.ok && txt === body, step: "baca", error: get.ok && txt === body ? null : `Gagal membaca (HTTP ${get.status})` });
-  } catch (e) { res.json({ ok: false, error: e.name === "AbortError" ? "Timeout menghubungi endpoint." : `Tidak terhubung: ${e.message}` }); }
+  res.json(await checkBucket(b));
 });
 
 app.get("/", (_req, res) => res.type("html").send(landingPage()));
@@ -596,5 +664,7 @@ if (require.main === module) {
   app.listen(port, () => console.log(`[galeri] jalan di port ${port} · simpan ${retentionDays()} hari`));
   setTimeout(() => cleanup().catch((e) => console.error("[cleanup]", e.message)), 20000);
   setInterval(() => cleanup().catch((e) => console.error("[cleanup]", e.message)), 30 * 60 * 1000);
+  setTimeout(() => checkAllBuckets().catch(() => {}), 30000);                       // tes kesehatan bucket saat mulai...
+  setInterval(() => checkAllBuckets().catch(() => {}), 10 * 60 * 1000).unref?.();   // ...dan tiap 10 menit (bucket yang pulih otomatis kembali dipakai)
 }
 module.exports = { app, cleanup, pickBucket, purgeSession };

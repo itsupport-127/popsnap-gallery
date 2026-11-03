@@ -73,6 +73,15 @@ CREATE INDEX IF NOT EXISTS idx_studios_token ON studios(token_hash);`);
 db.exec(`INSERT OR IGNORE INTO studios (skey, name, created_at, first_seen_at, last_seen_at)
   SELECT lower(trim(studio)), studio, MIN(created_at), MIN(created_at), NULL FROM sessions WHERE trim(studio) <> '' GROUP BY lower(trim(studio))`);
 
+for (const ddl of [
+  "ALTER TABLE buckets ADD COLUMN health TEXT NOT NULL DEFAULT ''",      // '' belum dites | ok | bad
+  "ALTER TABLE buckets ADD COLUMN health_msg TEXT NOT NULL DEFAULT ''",
+  "ALTER TABLE buckets ADD COLUMN health_at INTEGER",
+  "ALTER TABLE buckets ADD COLUMN fail_count INTEGER NOT NULL DEFAULT 0",
+  "ALTER TABLE studios ADD COLUMN sync_json TEXT",                       // laporan sinkron dari booth (denyut)
+  "ALTER TABLE studios ADD COLUMN sync_at INTEGER",
+]) { try { db.exec(ddl); } catch { /* sudah ada */ } }
+
 const getSetting = (k, def) => { const r = db.prepare("SELECT v FROM settings WHERE k = ?").get(k); return r ? r.v : def; };
 const setSetting = (k, v) => db.prepare("INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").run(k, String(v));
 const retentionDays = () => Math.max(1, Math.min(365, Number(getSetting("retention_days", process.env.RETENTION_DAYS || 7)) || 7));

@@ -23,7 +23,7 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
   const store = new Map();
   const s3 = http.createServer((req, res) => {
     const key = decodeURIComponent(req.url.split("?")[0]);
-    if (!/X-Amz-Signature=[0-9a-f]{64}/.test(req.url)) { res.statusCode = 403; return res.end(); }
+    if (!/X-Amz-Signature=[0-9a-f]{64}/.test(req.url) || key.startsWith("/bad/")) { res.statusCode = 403; return res.end(); } // /bad/ = bucket dengan key salah
     if (req.method === "PUT") { const c = []; req.on("data", (d) => c.push(d)); req.on("end", () => { store.set(key, Buffer.concat(c)); res.end(); }); return; }
     const v = store.get(key);
     if (req.method === "DELETE") { store.delete(key); res.statusCode = 204; return res.end(); }
@@ -288,6 +288,38 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
   assert((await j("/admin/api/studios", { headers: admin })).body.studios.some((x) => x.key === "studio bee" && x.name === "Studio Bee"), "nama baru dari kasir ikut");
   assert((await j("/admin/api/state", { headers: admin })).body.studios.length >= 2);
   console.log("ok  admin studio: status online/offline, tambah, edit, masa simpan per studio, putuskan/sambungkan, hapus, gabung nama, ikut nama kasir");
+
+  // ---- kesehatan bucket + cek koneksi menyeluruh ----
+  const addBad = await j("/admin/api/buckets", { method: "POST", headers: admin, body: JSON.stringify({ name: "Salah", endpoint: `http://127.0.0.1:${s3port}`, bucket: "bad", accessKey: "SALAH", secretKey: "SALAH", priority: 0, quotaGB: 1 }) });
+  assert(addBad.body.ok && addBad.body.test && addBad.body.test.ok === false && /403/.test(addBad.body.test.error), "key salah ketahuan saat disimpan: " + JSON.stringify(addBad.body));
+  const stH = (await j("/admin/api/state", { headers: admin })).body.buckets.find((x) => x.name === "Salah");
+  assert.strictEqual(stH.health, "bad"); assert(/403/.test(stH.healthMsg));
+  const hs = await j("/api/v1/sessions", { method: "POST", headers: A, body: JSON.stringify({ token: "HealthChk123456", files: [{ fid: "final", kind: "final", ext: "jpg", size: 6 }] }) });
+  assert.strictEqual(hs.status, 200); assert(!hs.body.uploads[0].url.includes("/bad/"), "bucket bermasalah dilewati walau prioritas teratas: " + hs.body.uploads[0].url.slice(0, 60));
+  const dg = (await j("/admin/api/diagnostics", { method: "POST", headers: admin })).body;
+  const dBad = dg.buckets.find((x) => x.name === "Salah"), dOk = dg.buckets.find((x) => x.name === "B1");
+  assert(dBad && dBad.ok === false && /403/.test(dBad.error) && dOk && dOk.ok === true, JSON.stringify(dg.buckets));
+  assert(dg.kasir && dg.kasir.ok === true && dg.kasir.configured === false, JSON.stringify(dg.kasir));
+  // perbaiki key (di tiruan: ganti nama bucket) -> tes ulang sehat
+  const fix = await j("/admin/api/buckets", { method: "POST", headers: admin, body: JSON.stringify({ id: addBad.body.id, name: "Salah", endpoint: `http://127.0.0.1:${s3port}`, bucket: "good", accessKey: "AK", secretKey: "SK", priority: 0, quotaGB: 1 }) });
+  assert(fix.body.ok && fix.body.test.ok === true);
+  assert.strictEqual((await j("/admin/api/state", { headers: admin })).body.buckets.find((x) => x.name === "Salah").health, "ok");
+  assert((await j(`/admin/api/buckets/${addBad.body.id}`, { method: "DELETE", headers: admin })).status < 300);
+  // laporan sinkron dari booth
+  assert.strictEqual((await j("/api/v1/heartbeat", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).status, 401);
+  const hbs = async (body, h = Bh) => j("/api/v1/heartbeat", { method: "POST", headers: h, body: JSON.stringify(body) });
+  const stateOf = async (key) => (await j("/admin/api/diagnostics", { method: "POST", headers: admin })).body.studios.find((x) => x.key === key);
+  assert(!/lancar/.test((await stateOf("studio bee")).note), "belum melapor");
+  assert.strictEqual((await stateOf("studio bee")).state, "unknown");
+  assert((await hbs({ pendingSessions: 0, sessionsWithErrors: 0, filesUploaded: 40, kasir: { ok: true } })).body.ok);
+  assert.strictEqual((await stateOf("studio bee")).state, "ok");
+  await hbs({ pendingSessions: 3, sessionsWithErrors: 0 }); let ds = await stateOf("studio bee"); assert.strictEqual(ds.state, "queue"); assert(/3 sesi/.test(ds.note));
+  await hbs({ pendingSessions: 3, sessionsWithErrors: 2, lastError: "Cloud menolak unggahan (HTTP 403)." }); ds = await stateOf("studio bee"); assert.strictEqual(ds.state, "warn"); assert(/403/.test(ds.note));
+  await hbs({ pendingSessions: 0, sessionsWithErrors: 0, kasir: { ok: false, error: "Kasir tidak menjawab (timeout)" } }); ds = await stateOf("studio bee"); assert.strictEqual(ds.state, "warn"); assert(/kasir/i.test(ds.note));
+  await j("/admin/api/studios/studio%20bee", { method: "POST", headers: admin, body: JSON.stringify({ blocked: true }) });
+  assert.strictEqual((await hbs({})).status, 403); assert.strictEqual((await stateOf("studio bee")).state, "blocked");
+  await j("/admin/api/studios/studio%20bee", { method: "POST", headers: admin, body: JSON.stringify({ blocked: false }) });
+  console.log("ok  cek koneksi: key bucket salah ketahuan & dilewati, tes ulang pulih, kasir, laporan sinkron booth (lancar/antre/error/kasir/diputus)");
 
   // bagi rata antar bucket sama-prioritas
   const used = (await j("/admin/api/state", { headers: admin })).body.buckets; assert(used.every((b) => b.usedGB >= 0));

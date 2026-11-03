@@ -35,4 +35,18 @@ async function verify(token) {
   const err = new Error("Kasir tidak terjangkau untuk memeriksa token."); err.status = 503; throw err;
 }
 
-module.exports = { verify };
+/** Cek kasir terjangkau (tanpa token studio): 401/403 = kasir hidup & menolak token kosong = SEHAT. */
+async function checkKasir() {
+  const base = String(process.env.KASIR_URL || "").trim().replace(/\/+$/, "").replace(/\/api\/photobox$/i, "");
+  if (!base) return { configured: false, ok: staticTokens().size > 0, error: staticTokens().size ? null : "KASIR_URL belum diisi di .env galeri", note: staticTokens().size ? "Memakai STUDIO_TOKENS (tanpa kasir)" : "" };
+  const t0 = Date.now();
+  try {
+    const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 8000);
+    const r = await fetch(`${base}/api/photobox/ping`, { headers: { Accept: "application/json" }, signal: ctrl.signal });
+    clearTimeout(t);
+    const ok = r.status === 401 || r.status === 403 || r.ok;
+    return { configured: true, ok, ms: Date.now() - t0, status: r.status, url: base, error: ok ? null : `Kasir membalas HTTP ${r.status}` };
+  } catch (e) { return { configured: true, ok: false, ms: Date.now() - t0, url: base, error: e.name === "AbortError" ? "Kasir tidak menjawab (timeout)" : `Kasir tidak terjangkau: ${e.cause?.code || e.message}` }; }
+}
+
+module.exports = { verify, checkKasir };
