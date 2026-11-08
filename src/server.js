@@ -190,6 +190,8 @@ function registerSession(studio, { token, mode, studioCode, files, retry, manual
       if (!bucket) return { status: 503, error: "Tidak ada penyimpanan cloud yang aktif / masih muat. Atur di halaman admin galeri." };
     }
     const key = `${sess.studio_code}/${ym}/${token}/${fid}.${ext}`;
+    // Pindah bucket / alamat (mis. retry): objek lama bisa saja sudah terunggah sebagian, jangan dibiarkan jadi yatim di cloud.
+    if (row && (row.bucket_id !== bucket.id || row.key !== key)) db.prepare("INSERT OR IGNORE INTO trash (bucket_id, key, created_at) VALUES (?, ?, ?)").run(row.bucket_id, row.key, now());
     if (row) db.prepare("UPDATE files SET bucket_id = ?, key = ?, size = ?, state = 'pending' WHERE id = ?").run(bucket.id, key, size, row.id);
     else db.prepare("INSERT INTO files (token, fid, kind, idx, ext, size, bucket_id, key, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
       .run(token, fid, kind, Math.max(0, Math.min(99, Number(f.idx) || 0)), ext, size, bucket.id, key, now());
@@ -429,12 +431,12 @@ app.post("/admin/api/upload/prepare", adminAuth, (req, res) => {
   if (!studio) return res.status(400).json({ error: "Nama studio wajib diisi." });
   const r = registerSession(ensureStudio(studio).name, { token: b.token, mode: b.mode, studioCode: b.studioCode, files: b.files, retry: b.retry, manual: true, social: b.social });
   if (r.error) return res.status(r.status).json({ error: r.error });
-  res.json({ ...r.body, uploads: r.body.uploads.map((u) => ({ fid: u.fid, path: `/admin/api/upload/${b.token}/${safe(u.fid, 30)}`, contentType: u.contentType })) });
+  res.json({ ...r.body, uploads: r.body.uploads.map((u) => ({ fid: u.fid, path: `/admin/api/upload/${normToken(b.token)}/${safe(u.fid, 30)}`, contentType: u.contentType })) });
 });
 // Isi file diteruskan (streaming) ke bucket: tidak disimpan di VPS & tidak perlu mengatur CORS bucket.
 app.put("/admin/api/upload/:token/:fid", adminAuth, async (req, res) => {
   try {
-    const row = db.prepare("SELECT * FROM files WHERE token = ? AND fid = ?").get(req.params.token, safe(req.params.fid, 30));
+    const row = db.prepare("SELECT * FROM files WHERE token = ? AND fid = ?").get(normToken(req.params.token), safe(req.params.fid, 30));
     if (!row) return res.status(404).json({ error: "File belum didaftarkan (prepare)." });
     const b = bucketById(row.bucket_id); const len = Number(req.headers["content-length"]) || 0;
     if (!b || !len || len > MAX_FILE) return res.status(400).json({ error: "Ukuran file tidak valid." });
@@ -626,6 +628,36 @@ app.delete("/admin/api/buckets/:id", adminAuth, (req, res) => {
   if (db.prepare("SELECT COUNT(*) n FROM files WHERE bucket_id = ?").get(id).n > 0) { db.prepare("UPDATE buckets SET enabled = 0 WHERE id = ?").run(id); return res.json({ ok: true, disabledOnly: true }); }
   db.prepare("DELETE FROM buckets WHERE id = ?").run(id); res.json({ ok: true });
 });
+// Pindai isi bucket: bandingkan daftar objek di cloud dengan catatan galeri.
+//  - yatim   = ada di cloud, tidak ada di catatan (sisa unggahan gagal / retry). delete:true menghapusnya, HANYA yang berpola alamat galeri dan berumur > 24 jam.
+//  - hilang  = tercatat 'ok' tapi tidak ada di cloud (halaman akan menampilkan foto rusak).
+const GALLERY_KEY = /^[A-Za-z0-9_-]{1,20}\/\d{6}\/[A-Za-z0-9_-]{10,40}\/[A-Za-z0-9_-]{1,30}\.(jpg|jpeg|png|gif|mp4|webm)$/;
+app.post("/admin/api/buckets/:id/scan", adminAuth, async (req, res) => {
+  const b = bucketById(Number(req.params.id)); if (!b) return res.status(404).json({ ok: false, error: "Bucket tidak ada." });
+  try {
+    const rows = db.prepare("SELECT key, state FROM files WHERE bucket_id = ?").all(b.id);
+    const known = new Set(rows.map((r) => r.key)), seen = new Set(), orphans = [];
+    let listed = 0, other = 0, pages = 0, token = null, orphanBytes = 0;
+    do {
+      const p = await s3.listPage(b, { token }); token = p.next; pages++;
+      for (const o of p.items) {
+        listed++; seen.add(o.key);
+        if (!GALLERY_KEY.test(o.key)) { other++; continue; } // bukan milik galeri (mis. _test/ atau file lain di bucket yang sama): jangan disentuh
+        if (!known.has(o.key)) { orphans.push(o); orphanBytes += o.size; }
+      }
+    } while (token && pages < 300);
+    const missing = rows.filter((r) => r.state === "ok" && !seen.has(r.key)).map((r) => r.key);
+    let deleted = 0, failed = 0, young = 0;
+    if (req.body?.delete === true) {
+      for (const o of orphans) {
+        if (now() - o.modified < 24 * 3600 * 1000) { young++; continue; } // mungkin unggahan yang sedang berjalan
+        if (known.has(o.key) || db.prepare("SELECT 1 FROM files WHERE bucket_id = ? AND key = ?").get(b.id, o.key)) continue; // terdaftar selagi memindai
+        if (await deleteObject(b.id, o.key)) deleted++; else failed++;
+      }
+    }
+    res.json({ ok: true, truncated: !!token, listed, tracked: rows.length, otherObjects: other, orphans: { count: orphans.length, mb: Math.round(orphanBytes / 1e5) / 10, sample: orphans.slice(0, 15).map((o) => o.key) }, missing: { count: missing.length, sample: missing.slice(0, 15) }, deleted, failed, tooYoung: young });
+  } catch (e) { res.status(502).json({ ok: false, error: `Gagal memindai bucket: ${e.message}` }); }
+});
 app.post("/admin/api/buckets/:id/test", adminAuth, async (req, res) => {
   const b = bucketById(Number(req.params.id)); if (!b) return res.status(404).json({ ok: false, error: "Bucket tidak ada." });
   res.json(await checkBucket(b));
@@ -648,14 +680,32 @@ async function purgeSession(token) {
   return allGone;
 }
 
+/** Hapus satu objek di cloud. true = sudah tidak ada (berhasil atau memang tidak ada / bucket sudah dihapus). */
+async function deleteObject(bucketId, key) {
+  const b = bucketById(bucketId); if (!b) return true;
+  try { const r = await s3.call(b, "DELETE", key, { timeoutMs: 15000 }); return r.ok || r.status === 404; } catch { return false; }
+}
+/** Kosongkan "sampah": objek lama yang ditinggalkan. Dilewati bila alamat itu ternyata dipakai file aktif (mis. retry kembali ke bucket semula). */
+async function emptyTrash() {
+  for (const t of db.prepare("SELECT * FROM trash ORDER BY id LIMIT 200").all()) {
+    const live = db.prepare("SELECT 1 FROM files WHERE bucket_id = ? AND key = ?").get(t.bucket_id, t.key);
+    if (live || await deleteObject(t.bucket_id, t.key) || now() - t.created_at > 14 * 86400000) db.prepare("DELETE FROM trash WHERE id = ?").run(t.id);
+    else db.prepare("UPDATE trash SET tries = tries + 1 WHERE id = ?").run(t.id);
+  }
+}
+
 async function cleanup() {
   const old = db.prepare("SELECT token FROM sessions WHERE expires_at < ? LIMIT 200").all(now());
   let removed = 0;
   for (const { token } of old) {
     if (await purgeSession(token)) removed++;
   }
-  // file "pending" yang tidak pernah selesai (booth mati) > 2 hari: buang catatannya supaya kuota bucket tidak tertahan
-  db.prepare("DELETE FROM files WHERE state = 'pending' AND created_at < ?").run(now() - 2 * 86400000);
+  // file "pending" yang tidak pernah selesai (booth mati) > 2 hari: hapus objeknya di cloud (bisa saja sudah terunggah tanpa konfirmasi),
+  // baru buang catatannya supaya kuota bucket tidak tertahan. Gagal menghapus = catatan dipertahankan, dicoba lagi di putaran berikut.
+  for (const f of db.prepare("SELECT * FROM files WHERE state = 'pending' AND created_at < ? LIMIT 200").all(now() - 2 * 86400000)) {
+    if (await deleteObject(f.bucket_id, f.key)) db.prepare("DELETE FROM files WHERE id = ?").run(f.id);
+  }
+  await emptyTrash();
   return removed;
 }
 

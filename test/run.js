@@ -20,10 +20,15 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
 
 (async () => {
   // S3 tiruan (memori)
-  const store = new Map();
+  const store = new Map(), mod = new Map(); // mod: waktu ubah terakhir objek (untuk uji pindai)
   const s3 = http.createServer((req, res) => {
     const key = decodeURIComponent(req.url.split("?")[0]);
     if (!/X-Amz-Signature=[0-9a-f]{64}/.test(req.url) || key.startsWith("/bad/")) { res.statusCode = 403; return res.end(); } // /bad/ = bucket dengan key salah
+    if (req.method === "GET" && /[?&]list-type=2/.test(req.url)) { // daftar objek (ListObjectsV2) tiruan, satu halaman
+      const bk = key.replace(/^\//, "").split("/")[0], esc = (x) => x.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+      const items = [...store.entries()].filter(([k]) => k.startsWith(`/${bk}/`)).map(([k, v]) => `<Contents><Key>${esc(k.slice(bk.length + 2))}</Key><LastModified>${new Date(mod.get(k) || Date.now()).toISOString()}</LastModified><Size>${v.length}</Size></Contents>`).join("");
+      res.setHeader("Content-Type", "application/xml"); return res.end(`<?xml version="1.0"?><ListBucketResult><IsTruncated>false</IsTruncated>${items}</ListBucketResult>`);
+    }
     if (req.method === "PUT") { const c = []; req.on("data", (d) => c.push(d)); req.on("end", () => { store.set(key, Buffer.concat(c)); res.end(); }); return; }
     const v = store.get(key);
     if (req.method === "DELETE") { store.delete(key); res.statusCode = 204; return res.end(); }
@@ -330,5 +335,39 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
   assert(store.size < before && ![...store.keys()].some((k) => k.includes(token)), "file cloud harus terhapus");
   assert.strictEqual(db.prepare("SELECT COUNT(*) n FROM files WHERE token = ?").get(token).n, 0);
   console.log("ok  kedaluwarsa: halaman 404, file di cloud terhapus, catatan dibersihkan");
+  // ---- objek yatim di cloud: tidak boleh tertinggal ----
+  { const put = (u) => fetch(u, { method: "PUT", body: "x" });
+    const ST = (token, extra = {}) => j("/api/v1/sessions", { method: "POST", headers: A, body: JSON.stringify({ token, studioCode: "ORF", files: [{ fid: "f1", kind: "final", ext: "jpg", size: 1 }], ...extra }) });
+    // 1) unggah sampai ke cloud tapi booth tak sempat konfirmasi: setelah 2 hari catatan pending dibuang -> objeknya ikut dihapus
+    const t1 = "ORPHANAAA11"; const r1 = await ST(t1); await put(r1.body.uploads[0].url);
+    const k1 = [...store.keys()].find((k) => k.includes(t1)); assert(k1, "objek terunggah");
+    db.prepare("UPDATE files SET created_at = ? WHERE token = ?").run(Date.now() - 3 * 86400000, t1);
+    await cleanup();
+    assert(!store.has(k1), "objek pending basi harus ikut terhapus dari cloud"); assert.strictEqual(db.prepare("SELECT COUNT(*) n FROM files WHERE token = ?").get(t1).n, 0);
+    // 2) retry berpindah bucket: objek di bucket lama tidak boleh jadi yatim
+    const t2 = "RETRYBBB222"; const q1 = await ST(t2); await put(q1.body.uploads[0].url);
+    const old = [...store.keys()].find((k) => k.includes(t2));
+    const q2 = await ST(t2, { retry: "f1" }); await put(q2.body.uploads[0].url);
+    await j(`/api/v1/sessions/${t2}/done`, { method: "POST", headers: A, body: JSON.stringify({ fid: "f1" }) });
+    const now2 = [...store.keys()].filter((k) => k.includes(t2));
+    if (now2.length > 1) { await cleanup(); }
+    const left = [...store.keys()].filter((k) => k.includes(t2)); assert.strictEqual(left.length, 1, "tinggal satu objek setelah retry: " + left.join(","));
+    assert.strictEqual(db.prepare("SELECT COUNT(*) n FROM trash").get().n, 0, "sampah kosong setelah dibersihkan");
+    // 3) pindai bucket: yatim terdeteksi, hanya yang berumur > 24 jam & berpola galeri yang dihapus, objek lain tidak disentuh
+    const bid = db.prepare("SELECT bucket_id b FROM files WHERE token = ?").get(t2).b, bname = db.prepare("SELECT bucket FROM buckets WHERE id = ?").get(bid).bucket;
+    store.set(`/${bname}/ORF/202601/YATIMLAMA11/x1.jpg`, Buffer.from("a")); mod.set(`/${bname}/ORF/202601/YATIMLAMA11/x1.jpg`, Date.now() - 3 * 86400000);
+    store.set(`/${bname}/ORF/202611/YATIMBARU22/x2.jpg`, Buffer.from("b")); // baru: mungkin unggahan berjalan
+    store.set(`/${bname}/catatan-pribadi/readme.txt`, Buffer.from("c")); mod.set(`/${bname}/catatan-pribadi/readme.txt`, Date.now() - 9 * 86400000);
+    const sc = await j(`/admin/api/buckets/${bid}/scan`, { method: "POST", headers: admin, body: "{}" });
+    assert(sc.body.ok && sc.body.orphans.count === 2 && sc.body.otherObjects >= 1, JSON.stringify(sc.body)); assert(store.has(`/${bname}/ORF/202601/YATIMLAMA11/x1.jpg`), "pindai saja tidak menghapus");
+    const dl = await j(`/admin/api/buckets/${bid}/scan`, { method: "POST", headers: admin, body: JSON.stringify({ delete: true }) });
+    assert(dl.body.deleted === 1 && dl.body.tooYoung === 1, JSON.stringify(dl.body));
+    assert(!store.has(`/${bname}/ORF/202601/YATIMLAMA11/x1.jpg`) && store.has(`/${bname}/ORF/202611/YATIMBARU22/x2.jpg`) && store.has(`/${bname}/catatan-pribadi/readme.txt`), "yang baru & milik orang lain tidak disentuh");
+    // 4) unggah manual dengan kode huruf kecil / bertanda hubung: jalur unggah memakai kode yang sudah dinormalkan
+    const mp = await j("/admin/api/upload/prepare", { method: "POST", headers: admin, body: JSON.stringify({ studio: "Studio A", token: "mnpq-rstu-vw", files: [{ fid: "m1", kind: "final", ext: "jpg", size: 1 }] }) });
+    assert.strictEqual(mp.status, 200, JSON.stringify(mp.body)); const up = await fetch(base + mp.body.uploads[0].path, { method: "PUT", headers: { ...admin, "Content-Type": "image/jpeg" }, body: "x" });
+    assert.strictEqual(up.status, 200, "unggah manual dengan kode tidak baku harus tetap jalan: " + up.status);
+    console.log("ok  objek yatim di cloud: pending basi, pindah bucket saat retry, pindai bucket (aman untuk file lain), unggah manual kode tidak baku");
+  }
   srv.close(); s3.close(); process.exit(0);
 })().catch((e) => { console.error("GAGAL:", e); process.exit(1); });

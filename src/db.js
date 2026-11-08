@@ -47,6 +47,15 @@ CREATE TABLE IF NOT EXISTS files (
   UNIQUE(token, fid)
 );
 CREATE INDEX IF NOT EXISTS idx_files_token ON files(token);
+-- Objek di cloud yang sudah tidak dipakai (mis. file dipindah ke bucket lain saat retry): dihapus berkala, dicoba ulang kalau bucket sedang bermasalah.
+CREATE TABLE IF NOT EXISTS trash (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  bucket_id INTEGER NOT NULL,
+  key TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  tries INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(bucket_id, key)
+);
 
 CREATE INDEX IF NOT EXISTS idx_files_bucket ON files(bucket_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_exp ON sessions(expires_at);

@@ -45,4 +45,27 @@ async function call(b, method, key, { body, headers, timeoutMs = 30000 } = {}) {
   finally { clearTimeout(timer); }
 }
 
-module.exports = { presignRaw, presign, call, regionOf };
+const unxml = (s) => String(s).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+/** Satu halaman daftar objek (maks 1000). Mengembalikan { items: [{key,size,modified}], next } atau melempar error. */
+async function listPage(b, { token, prefix = "", timeoutMs = 30000 } = {}) {
+  const t = target(b);
+  const query = { "list-type": "2", "max-keys": "1000" };
+  if (prefix) query.prefix = prefix;
+  if (token) query["continuation-token"] = token;
+  const url = presignRaw({ method: "GET", protocol: t.protocol, host: t.host, path: `${t.basePath}/${b.bucket}`, accessKey: b.access_key, secretKey: b.secret_key, region: regionOf(b), expires: 300, query });
+  const ctrl = new AbortController(); const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const r = await fetch(url, { signal: ctrl.signal });
+    const xml = await r.text();
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const items = [];
+    for (const m of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const key = /<Key>([\s\S]*?)<\/Key>/.exec(m[1]), size = /<Size>(\d+)<\/Size>/.exec(m[1]), mod = /<LastModified>([^<]+)<\/LastModified>/.exec(m[1]);
+      if (key) items.push({ key: unxml(key[1]), size: size ? Number(size[1]) : 0, modified: mod ? Date.parse(mod[1]) || 0 : 0 });
+    }
+    const trunc = /<IsTruncated>true<\/IsTruncated>/.test(xml), next = /<NextContinuationToken>([^<]+)<\/NextContinuationToken>/.exec(xml);
+    return { items, next: trunc && next ? unxml(next[1]) : null };
+  } finally { clearTimeout(timer); }
+}
+
+module.exports = { presignRaw, presign, call, regionOf, listPage };
