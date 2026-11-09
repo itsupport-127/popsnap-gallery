@@ -67,3 +67,14 @@ Nama studio diisi otomatis bila kode studio dikenal; kalau tidak, isi kolom "Nam
 
 ## Uji
 `npm install && npm test`
+
+## Pengguna & hak akses
+
+Akun `ADMIN_USER` / `ADMIN_PASSWORD` di `.env` selalu **admin penuh** (tidak bisa dihapus dari web). Admin membuat akun lain di menu **Pengguna**:
+
+* **Admin**: akses penuh + kelola pengguna.
+* **Staf**: hanya hak yang dicentang. Paket cepat: *Kasir / CS* (lihat studio & link, unggah manual), *Manajer* (+ ubah studio, atur link, lihat penyimpanan), *Hanya lihat*.
+* Hak: lihat/ubah studio, lihat/atur link, unggah manual, lihat/ubah penyimpanan cloud, ubah pengaturan umum. "Ubah" otomatis menyertakan "lihat".
+* Perubahan hak, nonaktifkan, atau hapus akun **langsung berlaku** (sesi diperiksa tiap permintaan). Ganti sandi memutus sesi lama. Staf bisa ganti sandi sendiri lewat tombol di bawah menu.
+* Pembatasan dijaga di server (HTTP 403), bukan hanya disembunyikan di tampilan. Detail bucket (endpoint, nama bucket, access key) disembunyikan dari akun tanpa hak "lihat penyimpanan".
+

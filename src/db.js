@@ -95,4 +95,10 @@ const getSetting = (k, def) => { const r = db.prepare("SELECT v FROM settings WH
 const setSetting = (k, v) => db.prepare("INSERT INTO settings (k, v) VALUES (?, ?) ON CONFLICT(k) DO UPDATE SET v = excluded.v").run(k, String(v));
 const retentionDays = () => Math.max(1, Math.min(365, Number(getSetting("retention_days", process.env.RETENTION_DAYS || 7)) || 7));
 
+// Akun pengguna admin (selain akun ADMIN_USER di .env yang selalu admin penuh). role: 'admin' = akses penuh, 'staff' = sesuai perms.
+db.exec(`CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT NOT NULL UNIQUE, name TEXT NOT NULL DEFAULT '',
+  pass_hash TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'staff', perms TEXT NOT NULL DEFAULT '[]',
+  active INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, last_login_at INTEGER)`);
+
 module.exports = { db, getSetting, setSetting, retentionDays, DATA_DIR };

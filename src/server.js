@@ -378,14 +378,45 @@ app.get("/s/:token/all.zip", async (req, res) => {
 // Mengganti ADMIN_PASSWORD otomatis mengeluarkan semua sesi lama.
 const SESSION_MS = 7 * 24 * 3600 * 1000, COOKIE = "pg_admin";
 const safeEq = (a, b) => { const x = crypto.createHash("sha256").update(String(a)).digest(), y = crypto.createHash("sha256").update(String(b)).digest(); return crypto.timingSafeEqual(x, y); };
-const sessionSig = (exp) => crypto.createHmac("sha256", crypto.createHmac("sha256", "popsnap-gallery-admin-v1").update(String(process.env.ADMIN_PASSWORD || "")).digest()).update(String(exp)).digest("base64url");
+const sigKey = () => crypto.createHmac("sha256", "popsnap-gallery-admin-v1").update(String(process.env.ADMIN_PASSWORD || "")).digest();
+const sigOf = (str) => crypto.createHmac("sha256", sigKey()).update(str).digest("base64url");
+const sessionSig = (exp) => sigOf(String(exp));
+const sameSig = (x, y) => { const a = Buffer.from(String(x || "")), b = Buffer.from(String(y)); return a.length === b.length && crypto.timingSafeEqual(a, b); };
 const readCookie = (req, name) => { for (const part of String(req.headers.cookie || "").split(";")) { const i = part.indexOf("="); if (i > 0 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim(); } return ""; };
-function hasSession(req) {
-  const [exp, sig] = readCookie(req, COOKIE).split(".");
-  if (!/^\d{10,16}$/.test(exp || "") || Number(exp) < Date.now()) return false;
-  const a = Buffer.from(sig || ""), b = Buffer.from(sessionSig(exp));
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+
+// ---- Hak akses ----
+// Akun ADMIN_USER/ADMIN_PASSWORD di .env = admin penuh (tidak bisa dihapus/dikunci dari web). Pengguna lain dibuat di menu Pengguna:
+// role "admin" = akses penuh + kelola pengguna; role "staff" = hanya hak yang dicentang. Perubahan hak berlaku langsung (dibaca tiap permintaan).
+const PERMS = {
+  "studio.view": "Lihat daftar studio", "studio.edit": "Tambah/ubah/putuskan/hapus studio",
+  "link.view": "Lihat link pelanggan", "link.edit": "Atur link: perpanjang, nonaktifkan, hapus", "upload": "Unggah manual foto",
+  "storage.view": "Lihat penyimpanan cloud & cek koneksi", "storage.edit": "Tambah/ubah/hapus bucket",
+  "settings.edit": "Ubah pengaturan umum",
+};
+const PRESETS = [
+  { id: "cs", label: "Kasir / CS", perms: ["studio.view", "link.view", "upload"] },
+  { id: "manajer", label: "Manajer", perms: ["studio.view", "studio.edit", "link.view", "link.edit", "upload", "storage.view"] },
+  { id: "lihat", label: "Hanya lihat", perms: ["studio.view", "link.view", "storage.view"] },
+];
+const IMPLIES = { "studio.edit": "studio.view", "link.edit": "link.view", "upload": "link.view", "storage.edit": "storage.view" };
+const normPerms = (list) => { const set = new Set((Array.isArray(list) ? list : []).map(String).filter((x) => x in PERMS)); for (const [k, v] of Object.entries(IMPLIES)) if (set.has(k)) set.add(v); return Object.keys(PERMS).filter((k) => set.has(k)); };
+const hashPw = (pw) => { const salt = crypto.randomBytes(16); return `s1$${salt.toString("base64url")}$${crypto.scryptSync(String(pw), salt, 32).toString("base64url")}`; };
+const checkPw = (pw, stored) => { const [v, sl, h] = String(stored || "").split("$"); if (v !== "s1" || !sl || !h) return false; return sameSig(crypto.scryptSync(String(pw), Buffer.from(sl, "base64url"), 32).toString("base64url"), h); };
+const envAdmin = () => ({ id: 0, username: process.env.ADMIN_USER || "admin", name: "Admin", admin: true, env: true, perms: new Set(Object.keys(PERMS)) });
+const principalOf = (row) => { const admin = row.role === "admin"; let list = []; try { list = JSON.parse(row.perms || "[]"); } catch { /* rusak: tanpa hak */ } return { id: row.id, username: row.username, name: row.name || row.username, admin, env: false, perms: new Set(admin ? Object.keys(PERMS) : normPerms(list)) }; };
+const userSig = (row, exp) => sigOf(`u${row.id}~${exp}~${String(row.pass_hash).slice(-16)}`); // ganti sandi / nonaktif = sesi lama otomatis mati
+const userCookie = (row, req) => { const exp = Date.now() + SESSION_MS; return `${COOKIE}=${row.id}~${exp}.${userSig(row, exp)}; Max-Age=${SESSION_MS / 1000}; ${cookieAttrs(req)}`; };
+function sessionUser(req) {
+  const [body, sig] = readCookie(req, COOKIE).split(".");
+  const m = /^(?:(\d{1,9})~)?(\d{10,16})$/.exec(body || "");
+  if (!m || Number(m[2]) < Date.now()) return null;
+  if (!m[1]) return sameSig(sig, sessionSig(m[2])) ? envAdmin() : null;
+  const row = db.prepare("SELECT * FROM users WHERE id = ? AND active = 1").get(Number(m[1]));
+  return row && sameSig(sig, userSig(row, m[2])) ? principalOf(row) : null;
 }
+const can = (req, perm) => !!req.user && (req.user.admin || req.user.perms.has(perm));
+const need = (perm) => (req, res, next) => can(req, perm) ? next() : res.status(403).json({ error: "Akunmu tidak punya hak untuk tindakan ini." });
+const needAdmin = (req, res, next) => req.user?.admin ? next() : res.status(403).json({ error: "Hanya admin yang boleh mengelola pengguna." });
 // Basic Auth DIMATIKAN secara bawaan: browser menyimpan login Basic dan mengirimnya otomatis, sehingga tombol "Keluar" tidak berefek.
 // Nyalakan hanya untuk skrip/curl: ADMIN_ALLOW_BASIC=1 di .env.
 function basicOk(req) {
@@ -398,7 +429,8 @@ function basicOk(req) {
 const cookieAttrs = (req) => `Path=/admin; HttpOnly; SameSite=Strict${req.secure ? "; Secure" : ""}`;
 function adminAuth(req, res, next) {
   if (!process.env.ADMIN_PASSWORD) return res.status(503).send("Admin nonaktif: isi ADMIN_PASSWORD di .env");
-  if (hasSession(req) || basicOk(req)) return next();
+  const who = sessionUser(req) || (basicOk(req) ? envAdmin() : null);
+  if (who) { req.user = who; return next(); }
   res.set("Cache-Control", "no-store");
   if (req.originalUrl.startsWith("/admin/api/")) return res.status(401).json({ error: "Sesi habis. Masuk lagi." });
   res.status(401).type("html").send(fs.readFileSync(path.join(__dirname, "login.html"), "utf8"));
@@ -419,13 +451,20 @@ app.post("/admin/api/login", (req, res) => {
     res.set("Set-Cookie", `${COOKIE}=${exp}.${sessionSig(exp)}; Max-Age=${SESSION_MS / 1000}; ${cookieAttrs(req)}`);
     return res.json({ ok: true });
   }
+  const uname = String(username ?? "").trim().toLowerCase(), urow = uname ? db.prepare("SELECT * FROM users WHERE username = ? AND active = 1").get(uname) : null;
+  if (urow && checkPw(password ?? "", urow.pass_hash)) {
+    loginTries.delete(ip);
+    db.prepare("UPDATE users SET last_login_at = ? WHERE id = ?").run(t, urow.id);
+    res.set("Set-Cookie", userCookie(urow, req));
+    return res.json({ ok: true });
+  }
   rec.n++; if (rec.n >= 5) { rec.until = t + 5 * 60000; rec.n = 0; }
   loginTries.set(ip, rec);
   setTimeout(() => res.status(401).json({ error: "Nama pengguna atau kata sandi salah." }), 400); // jeda kecil memperlambat tebakan
 });
 app.post("/admin/api/logout", (req, res) => { res.set("Set-Cookie", `${COOKIE}=; Max-Age=0; ${cookieAttrs(req)}`).json({ ok: true }); });
 // ---- Unggah manual dari website (PC CS memilih folder hasil dari jaringan bersama; file masuk ke cloud, link langsung hidup) ----
-app.post("/admin/api/upload/prepare", adminAuth, (req, res) => {
+app.post("/admin/api/upload/prepare", adminAuth, need("upload"), (req, res) => {
   const b = req.body || {};
   const studio = String(b.studio || "").trim().slice(0, 60);
   if (!studio) return res.status(400).json({ error: "Nama studio wajib diisi." });
@@ -434,7 +473,7 @@ app.post("/admin/api/upload/prepare", adminAuth, (req, res) => {
   res.json({ ...r.body, uploads: r.body.uploads.map((u) => ({ fid: u.fid, path: `/admin/api/upload/${normToken(b.token)}/${safe(u.fid, 30)}`, contentType: u.contentType })) });
 });
 // Isi file diteruskan (streaming) ke bucket: tidak disimpan di VPS & tidak perlu mengatur CORS bucket.
-app.put("/admin/api/upload/:token/:fid", adminAuth, async (req, res) => {
+app.put("/admin/api/upload/:token/:fid", adminAuth, need("upload"), async (req, res) => {
   try {
     const row = db.prepare("SELECT * FROM files WHERE token = ? AND fid = ?").get(normToken(req.params.token), safe(req.params.fid, 30));
     if (!row) return res.status(404).json({ error: "File belum didaftarkan (prepare)." });
@@ -452,17 +491,63 @@ app.put("/admin/api/upload/:token/:fid", adminAuth, async (req, res) => {
 });
 const maskB = (b, used) => ({ id: b.id, name: b.name, endpoint: b.endpoint, region: b.region, bucket: b.bucket, accessKey: b.access_key, secretSet: !!b.secret_key, enabled: !!b.enabled, priority: b.priority, quotaGB: b.quota_bytes ? Math.round(b.quota_bytes / 1e7) / 100 : 0, usedGB: Math.round((used.get(b.id) || 0) / 1e7) / 100, health: b.health || "", healthMsg: b.health_msg || "", healthAt: b.health_at || null });
 app.get("/admin", adminAuth, (_req, res) => res.type("html").send(fs.readFileSync(path.join(__dirname, "admin.html"), "utf8")));
-app.get("/admin/api/state", adminAuth, (_req, res) => {
+app.get("/admin/api/state", adminAuth, (req, res) => {
   const used = usedBytes();
   res.json({
     retentionDays: retentionDays(), zipEnabled: zipEnabled(), zipMode: zipMode(), publicUrl: PUBLIC_URL(),
-    buckets: db.prepare("SELECT * FROM buckets ORDER BY priority, id").all().map((b) => maskB(b, used)),
+    buckets: db.prepare("SELECT * FROM buckets ORDER BY priority, id").all().map((b) => { const m = maskB(b, used); return can(req, "storage.view") ? m : { ...m, endpoint: "", bucket: "", accessKey: "", region: "", healthMsg: "" }; }),
     stats: { sessions: db.prepare("SELECT COUNT(*) n FROM sessions").get().n, files: db.prepare("SELECT COUNT(*) n FROM files WHERE state = 'ok'").get().n, pending: db.prepare("SELECT COUNT(*) n FROM files WHERE state = 'pending'").get().n },
     studios: db.prepare("SELECT st.name studio, (SELECT MAX(s.studio_code) FROM sessions s WHERE lower(trim(s.studio)) = st.skey) code, (SELECT COUNT(*) FROM sessions s WHERE lower(trim(s.studio)) = st.skey) sessions, COALESCE(st.last_seen_at, 0) last FROM studios st ORDER BY last DESC, st.name").all(),
   });
 });
+// ---- Pengguna & hak akses (hanya admin) ----
+app.get("/admin/api/me", adminAuth, (req, res) => {
+  const u = req.user;
+  res.json({ username: u.username, name: u.name, admin: u.admin, env: u.env, perms: [...u.perms], catalog: PERMS, presets: PRESETS });
+});
+const userRow = (r) => ({ id: r.id, username: r.username, name: r.name, role: r.role, perms: r.role === "admin" ? Object.keys(PERMS) : normPerms(JSON.parse(r.perms || "[]")), active: !!r.active, createdAt: r.created_at, lastLoginAt: r.last_login_at });
+app.get("/admin/api/users", adminAuth, needAdmin, (_req, res) => {
+  res.json({ envUser: process.env.ADMIN_USER || "admin", users: db.prepare("SELECT * FROM users ORDER BY id").all().map(userRow), catalog: PERMS, presets: PRESETS });
+});
+const cleanName = (v) => String(v || "").replace(/[<>]/g, "").trim().slice(0, 60);
+app.post("/admin/api/users", adminAuth, needAdmin, (req, res) => {
+  const b = req.body || {}, username = String(b.username || "").trim().toLowerCase();
+  if (!/^[a-z0-9._-]{3,30}$/.test(username)) return res.status(400).json({ error: "Username 3-30 karakter: huruf kecil, angka, titik, strip, garis bawah." });
+  if (username === String(process.env.ADMIN_USER || "admin").toLowerCase()) return res.status(409).json({ error: "Username itu dipakai akun admin utama (.env)." });
+  if (String(b.password || "").length < 8 || String(b.password).length > 200) return res.status(400).json({ error: "Kata sandi minimal 8 karakter." });
+  if (db.prepare("SELECT 1 FROM users WHERE username = ?").get(username)) return res.status(409).json({ error: "Username sudah dipakai." });
+  const role = b.role === "admin" ? "admin" : "staff", perms = role === "admin" ? [] : normPerms(b.perms);
+  const r = db.prepare("INSERT INTO users (username, name, pass_hash, role, perms, active, created_at) VALUES (?,?,?,?,?,?,?)").run(username, cleanName(b.name) || username, hashPw(b.password), role, JSON.stringify(perms), b.active === false ? 0 : 1, now());
+  res.json({ ok: true, id: Number(r.lastInsertRowid) });
+});
+app.post("/admin/api/users/:id", adminAuth, needAdmin, (req, res) => {
+  const id = Number(req.params.id), row = db.prepare("SELECT * FROM users WHERE id = ?").get(id), b = req.body || {};
+  if (!row) return res.status(404).json({ error: "Pengguna tidak ditemukan." });
+  const role = b.role == null ? row.role : b.role === "admin" ? "admin" : "staff", active = b.active == null ? row.active : b.active ? 1 : 0;
+  if (id === req.user.id && (role !== "admin" || !active)) return res.status(400).json({ error: "Kamu tidak bisa menurunkan atau menonaktifkan akunmu sendiri." });
+  const perms = role === "admin" ? [] : b.perms == null ? normPerms(JSON.parse(row.perms || "[]")) : normPerms(b.perms);
+  let hash = row.pass_hash;
+  if (b.password) { if (String(b.password).length < 8 || String(b.password).length > 200) return res.status(400).json({ error: "Kata sandi minimal 8 karakter." }); hash = hashPw(b.password); }
+  db.prepare("UPDATE users SET name = ?, role = ?, perms = ?, active = ?, pass_hash = ? WHERE id = ?").run(b.name == null ? row.name : cleanName(b.name) || row.username, role, JSON.stringify(perms), active, hash, id);
+  res.json({ ok: true });
+});
+app.delete("/admin/api/users/:id", adminAuth, needAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (id === req.user.id) return res.status(400).json({ error: "Kamu tidak bisa menghapus akunmu sendiri." });
+  const r = db.prepare("DELETE FROM users WHERE id = ?").run(id);
+  res.json({ ok: true, deleted: r.changes > 0 });
+});
+// Pengguna biasa mengganti sandinya sendiri (akun .env diganti lewat file .env).
+app.post("/admin/api/me/password", adminAuth, (req, res) => {
+  if (req.user.env) return res.status(400).json({ error: "Sandi akun admin utama diganti lewat file .env di server." });
+  const b = req.body || {}, row = db.prepare("SELECT * FROM users WHERE id = ?").get(req.user.id);
+  if (!row || !checkPw(b.current ?? "", row.pass_hash)) return setTimeout(() => res.status(400).json({ error: "Sandi saat ini salah." }), 400);
+  if (String(b.password || "").length < 8 || String(b.password).length > 200) return res.status(400).json({ error: "Sandi baru minimal 8 karakter." });
+  db.prepare("UPDATE users SET pass_hash = ? WHERE id = ?").run(hashPw(b.password), row.id);
+  res.set("Set-Cookie", userCookie(db.prepare("SELECT * FROM users WHERE id = ?").get(row.id), req)).json({ ok: true });
+});
 // ---- Cek koneksi menyeluruh: bucket, kasir, dan laporan sinkron tiap booth ----
-app.post("/admin/api/diagnostics", adminAuth, async (_req, res) => {
+app.post("/admin/api/diagnostics", adminAuth, need("storage.view"), async (_req, res) => {
   const [buckets, kasir] = await Promise.all([
     Promise.all(db.prepare("SELECT * FROM buckets WHERE enabled = 1 ORDER BY priority, id").all().map(async (b) => { const r = await checkBucket(b).catch((e) => ({ ok: false, error: e.message })); return { id: b.id, name: b.name, ok: !!r.ok, ms: r.ms || null, error: r.error || null }; })),
     auth.checkKasir(),
@@ -499,12 +584,12 @@ const studioList = () => db.prepare(`SELECT st.*,
   (SELECT COALESCE(SUM(f.size), 0) FROM files f JOIN sessions s ON s.token = f.token WHERE lower(trim(s.studio)) = st.skey AND f.state = 'ok') bytes,
   (SELECT MAX(f.uploaded_at) FROM files f JOIN sessions s ON s.token = f.token WHERE lower(trim(s.studio)) = st.skey) last_upload
   FROM studios st ORDER BY (st.last_seen_at IS NULL), st.last_seen_at DESC, st.name`).all();
-app.get("/admin/api/studios", adminAuth, (_req, res) => {
+app.get("/admin/api/studios", adminAuth, need("studio.view"), (_req, res) => {
   const list = studioList().map(studioRow);
   res.json({ now: now(), onlineMs: ONLINE_MS, studios: list, counts: { online: list.filter((x) => x.status === "online").length, total: list.length, blocked: list.filter((x) => x.blocked).length } });
 });
 const retOf = (v) => { if (v === "" || v == null) return null; const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(1, Math.min(365, n)) : null; };
-app.post("/admin/api/studios", adminAuth, (req, res) => {
+app.post("/admin/api/studios", adminAuth, need("studio.edit"), (req, res) => {
   const b = req.body || {}, name = String(b.name || "").replace(/[<>]/g, "").trim().slice(0, 60);
   if (!name) return res.status(400).json({ error: "Nama studio wajib diisi." });
   if (db.prepare("SELECT 1 FROM studios WHERE skey = ?").get(skey(name))) return res.status(409).json({ error: "Studio dengan nama itu sudah ada." });
@@ -512,7 +597,7 @@ app.post("/admin/api/studios", adminAuth, (req, res) => {
   db.prepare("UPDATE studios SET note = ?, retention_days = ?, name_locked = 1 WHERE skey = ?").run(String(b.note || "").slice(0, 200), retOf(b.retentionDays), row.skey);
   res.json({ ok: true });
 });
-app.post("/admin/api/studios/:key", adminAuth, (req, res) => {
+app.post("/admin/api/studios/:key", adminAuth, need("studio.edit"), (req, res) => {
   const key = skey(req.params.key), b = req.body || {};
   let row = db.prepare("SELECT * FROM studios WHERE skey = ?").get(key);
   if (!row) return res.status(404).json({ error: "Studio tidak ditemukan." });
@@ -526,7 +611,7 @@ app.post("/admin/api/studios/:key", adminAuth, (req, res) => {
   if (b.blocked != null) db.prepare("UPDATE studios SET blocked = ? WHERE skey = ?").run(b.blocked ? 1 : 0, row.skey);
   res.json({ ok: true, merged });
 });
-app.delete("/admin/api/studios/:key", adminAuth, async (req, res) => {
+app.delete("/admin/api/studios/:key", adminAuth, need("studio.edit"), async (req, res) => {
   const key = skey(req.params.key), row = db.prepare("SELECT * FROM studios WHERE skey = ?").get(key);
   if (!row) return res.json({ ok: true });
   if (row.blocked) return res.status(400).json({ error: "Studio sedang diputus. Sambungkan dulu, atau biarkan tetap terputus supaya booth-nya terblokir." });
@@ -542,7 +627,7 @@ app.delete("/admin/api/studios/:key", adminAuth, async (req, res) => {
 // ---- Link pelanggan (sesi): lihat semua, cari, ubah masa berlaku / nama studio, hapus ----
 const likeEsc = (x) => String(x).replace(/[\\%_]/g, (c) => "\\" + c);
 const sessRow = (r) => ({ token: r.token, studio: r.studio, studioCode: r.studio_code || "", mode: r.mode || "", manual: !!r.manual, social: r.social == null ? null : r.social, createdAt: r.created_at, expiresAt: r.expires_at, files: r.files, pending: r.pending, bytes: r.bytes });
-app.get("/admin/api/sessions", adminAuth, (req, res) => {
+app.get("/admin/api/sessions", adminAuth, need("link.view"), (req, res) => {
   const q = String(req.query.q || "").trim().slice(0, 60), studio = String(req.query.studio || "").slice(0, 80), source = String(req.query.source || "");
   const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 30)), offset = Math.max(0, Number(req.query.offset) || 0);
   const w = [], a = [];
@@ -558,7 +643,7 @@ app.get("/admin/api/sessions", adminAuth, (req, res) => {
   res.json({ total, publicUrl: PUBLIC_URL(), sessions: rows.map(sessRow) });
 });
 const MAX_EXPIRY_MS = 730 * 86400000;
-app.post("/admin/api/sessions/:token", adminAuth, (req, res) => {
+app.post("/admin/api/sessions/:token", adminAuth, need("link.edit"), (req, res) => {
   const s = db.prepare("SELECT * FROM sessions WHERE token = ?").get(req.params.token);
   if (!s) return res.status(404).json({ error: "Sesi tidak ditemukan." });
   const b = req.body || {};
@@ -575,7 +660,7 @@ app.post("/admin/api/sessions/:token", adminAuth, (req, res) => {
   }
   res.json({ ok: true });
 });
-app.delete("/admin/api/sessions/:token", adminAuth, async (req, res) => {
+app.delete("/admin/api/sessions/:token", adminAuth, need("link.edit"), async (req, res) => {
   const s = db.prepare("SELECT token FROM sessions WHERE token = ?").get(req.params.token);
   if (!s) return res.json({ ok: true, deleted: true });
   db.prepare("UPDATE sessions SET expires_at = ? WHERE token = ?").run(now() - 1000, s.token); // link langsung mati
@@ -583,7 +668,7 @@ app.delete("/admin/api/sessions/:token", adminAuth, async (req, res) => {
   res.json({ ok: true, deleted: gone }); // false = sebagian file di cloud belum terhapus; dibereskan otomatis berkala
 });
 // Aksi massal: { action: "delete" | "extend", tokens: [...], days }  (extend = tambah N hari dari masa berlaku sekarang)
-app.post("/admin/api/sessions-bulk", adminAuth, async (req, res) => {
+app.post("/admin/api/sessions-bulk", adminAuth, need("link.edit"), async (req, res) => {
   const b = req.body || {};
   const tokens = [...new Set((Array.isArray(b.tokens) ? b.tokens : []).map((x) => String(x)))].slice(0, 200);
   if (!tokens.length) return res.status(400).json({ error: "Tidak ada sesi dipilih." });
@@ -600,12 +685,12 @@ app.post("/admin/api/sessions-bulk", adminAuth, async (req, res) => {
   } else return res.status(400).json({ error: "Aksi tidak dikenal." });
   res.json({ ok: true, done, pending });
 });
-app.post("/admin/api/settings", adminAuth, (req, res) => {
+app.post("/admin/api/settings", adminAuth, need("settings.edit"), (req, res) => {
   if (req.body?.retentionDays != null) setSetting("retention_days", Math.max(1, Math.min(365, Math.round(Number(req.body.retentionDays) || 7))));
   if (req.body?.zipEnabled != null) { const z = req.body.zipEnabled; setSetting("zip_enabled", z === false || z === "0" || z === 0 ? "0" : String(z) === "2" ? "2" : "1"); }
   res.json({ ok: true });
 });
-app.post("/admin/api/buckets", adminAuth, async (req, res) => {
+app.post("/admin/api/buckets", adminAuth, need("storage.edit"), async (req, res) => {
   const b = req.body || {};
   const endpoint = String(b.endpoint || "").trim().replace(/\/+$/, "");
   if (!/^https?:\/\/[^\s/]+/.test(endpoint) || !b.bucket || !b.accessKey) return res.status(400).json({ error: "Endpoint, nama bucket, dan access key wajib diisi." });
@@ -623,7 +708,7 @@ app.post("/admin/api/buckets", adminAuth, async (req, res) => {
   const test = await checkBucket(bucketById(Number(r.lastInsertRowid))).catch((e) => ({ ok: false, error: e.message }));
   res.json({ ok: true, id: Number(r.lastInsertRowid), test });
 });
-app.delete("/admin/api/buckets/:id", adminAuth, (req, res) => {
+app.delete("/admin/api/buckets/:id", adminAuth, need("storage.edit"), (req, res) => {
   const id = Number(req.params.id);
   if (db.prepare("SELECT COUNT(*) n FROM files WHERE bucket_id = ?").get(id).n > 0) { db.prepare("UPDATE buckets SET enabled = 0 WHERE id = ?").run(id); return res.json({ ok: true, disabledOnly: true }); }
   db.prepare("DELETE FROM buckets WHERE id = ?").run(id); res.json({ ok: true });
@@ -632,7 +717,7 @@ app.delete("/admin/api/buckets/:id", adminAuth, (req, res) => {
 //  - yatim   = ada di cloud, tidak ada di catatan (sisa unggahan gagal / retry). delete:true menghapusnya, HANYA yang berpola alamat galeri dan berumur > 24 jam.
 //  - hilang  = tercatat 'ok' tapi tidak ada di cloud (halaman akan menampilkan foto rusak).
 const GALLERY_KEY = /^[A-Za-z0-9_-]{1,20}\/\d{6}\/[A-Za-z0-9_-]{10,40}\/[A-Za-z0-9_-]{1,30}\.(jpg|jpeg|png|gif|mp4|webm)$/;
-app.post("/admin/api/buckets/:id/scan", adminAuth, async (req, res) => {
+app.post("/admin/api/buckets/:id/scan", adminAuth, need("storage.edit"), async (req, res) => {
   const b = bucketById(Number(req.params.id)); if (!b) return res.status(404).json({ ok: false, error: "Bucket tidak ada." });
   try {
     const rows = db.prepare("SELECT key, state FROM files WHERE bucket_id = ?").all(b.id);
@@ -658,7 +743,7 @@ app.post("/admin/api/buckets/:id/scan", adminAuth, async (req, res) => {
     res.json({ ok: true, truncated: !!token, listed, tracked: rows.length, otherObjects: other, orphans: { count: orphans.length, mb: Math.round(orphanBytes / 1e5) / 10, sample: orphans.slice(0, 15).map((o) => o.key) }, missing: { count: missing.length, sample: missing.slice(0, 15) }, deleted, failed, tooYoung: young });
   } catch (e) { res.status(502).json({ ok: false, error: `Gagal memindai bucket: ${e.message}` }); }
 });
-app.post("/admin/api/buckets/:id/test", adminAuth, async (req, res) => {
+app.post("/admin/api/buckets/:id/test", adminAuth, need("storage.edit"), async (req, res) => {
   const b = bucketById(Number(req.params.id)); if (!b) return res.status(404).json({ ok: false, error: "Bucket tidak ada." });
   res.json(await checkBucket(b));
 });

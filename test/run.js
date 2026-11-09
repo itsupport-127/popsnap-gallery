@@ -369,5 +369,52 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
     assert.strictEqual(up.status, 200, "unggah manual dengan kode tidak baku harus tetap jalan: " + up.status);
     console.log("ok  objek yatim di cloud: pending basi, pindah bucket saat retry, pindai bucket (aman untuk file lain), unggah manual kode tidak baku");
   }
+  // ---- pengguna & hak akses ----
+  {
+    const J = (m, body, h = admin) => j(m[0] === "/" ? m : m, { method: body === undefined ? "GET" : "POST", headers: h, body: body === undefined ? undefined : JSON.stringify(body) });
+    const login = async (username, password) => { const r = await fetch(base + "/admin/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) }); const c = (r.headers.get("set-cookie") || "").split(";")[0]; return { status: r.status, h: { Cookie: c, "Content-Type": "application/json" } }; };
+    const cr = await J("/admin/api/users", { username: "Rina", name: "Rina CS", password: "sandi-rina-1", role: "staff", perms: ["upload", "studio.edit", "xx.bukan"] });
+    assert(cr.body.ok, JSON.stringify(cr.body)); const rid = cr.body.id;
+    assert.strictEqual((await J("/admin/api/users", { username: "rina", password: "sandi-lain-123" })).status, 409, "username kembar");
+    assert.strictEqual((await J("/admin/api/users", { username: "admin", password: "sandi-lain-123" })).status, 409, "username admin utama dilarang");
+    assert.strictEqual((await J("/admin/api/users", { username: "abc", password: "pendek" })).status, 400, "sandi pendek");
+    const lst = (await J("/admin/api/users")).body.users.find((u) => u.id === rid);
+    assert.deepStrictEqual(lst.perms, ["studio.view", "studio.edit", "link.view", "upload"], "hak dinormalkan (edit => lihat, hak asing dibuang): " + lst.perms);
+    assert(!JSON.stringify(lst).includes("pass"), "hash sandi tidak boleh bocor");
+    assert.strictEqual((await login("rina", "salah-salah")).status, 401);
+    const R = await login("Rina", "sandi-rina-1"); assert.strictEqual(R.status, 200, "login pengguna");
+    const me = (await J("/admin/api/me", undefined, R.h)).body; assert(!me.admin && me.perms.includes("upload") && !me.perms.includes("storage.edit"), JSON.stringify(me));
+    // boleh
+    assert.strictEqual((await J("/admin/api/studios", undefined, R.h)).status, 200); assert.strictEqual((await J("/admin/api/sessions", undefined, R.h)).status, 200);
+    assert.strictEqual((await J("/admin/api/upload/prepare", { studio: "Studio A", token: "rina-test-xy7", files: [] }, R.h)).status !== 403, true, "upload diizinkan");
+    // dilarang (403) di tiap area
+    for (const [m, u, b] of [["POST", "/admin/api/buckets", {}], ["POST", "/admin/api/settings", { retentionDays: 3 }], ["POST", "/admin/api/diagnostics", {}], ["POST", "/admin/api/sessions-bulk", {}], ["POST", "/admin/api/users", { username: "xyz", password: "12345678" }]])
+      assert.strictEqual((await j(u, { method: m, headers: R.h, body: JSON.stringify(b) })).status, 403, "harus 403: " + u);
+    assert.strictEqual((await j("/admin/api/users", { headers: R.h })).status, 403, "pengguna biasa tidak boleh melihat daftar pengguna");
+    assert.strictEqual((await j("/admin/api/buckets/1/scan", { method: "POST", headers: R.h, body: "{}" })).status, 403);
+    const stt = (await J("/admin/api/state", undefined, R.h)).body; assert(stt.buckets.every((b) => !b.endpoint && !b.accessKey && !b.bucket), "detail bucket disembunyikan tanpa hak lihat penyimpanan");
+    // ubah hak: berlaku langsung tanpa login ulang
+    assert((await J("/admin/api/users/" + rid, { perms: ["storage.view", "link.edit"] })).body.ok);
+    assert.strictEqual((await J("/admin/api/diagnostics", {}, R.h)).status, 200, "hak baru langsung berlaku");
+    assert.strictEqual((await J("/admin/api/upload/prepare", { studio: "Studio A", token: "rina-test-xy8", files: [] }, R.h)).status, 403, "hak lama langsung dicabut");
+    // ganti sandi sendiri: sesi lama mati, yang baru hidup
+    assert.strictEqual((await J("/admin/api/me/password", { current: "salah", password: "sandi-baru-123" }, R.h)).status, 400);
+    const pw = await fetch(base + "/admin/api/me/password", { method: "POST", headers: R.h, body: JSON.stringify({ current: "sandi-rina-1", password: "sandi-baru-123" }) }); assert.strictEqual(pw.status, 200);
+    assert.strictEqual((await J("/admin/api/me", undefined, R.h)).status, 401, "cookie lama tidak berlaku setelah sandi berganti");
+    const H2 = { Cookie: pw.headers.get("set-cookie").split(";")[0], "Content-Type": "application/json" }; assert.strictEqual((await J("/admin/api/me", undefined, H2)).status, 200, "cookie baru dari respons jalan");
+    assert.strictEqual((await login("rina", "sandi-rina-1")).status, 401); const R2 = await login("rina", "sandi-baru-123"); assert.strictEqual(R2.status, 200);
+    // nonaktif = langsung keluar; admin tidak bisa menurunkan diri; hapus
+    assert((await J("/admin/api/users/" + rid, { active: false })).body.ok);
+    assert.strictEqual((await J("/admin/api/me", undefined, R2.h)).status, 401, "akun nonaktif langsung ditolak"); assert.strictEqual((await login("rina", "sandi-baru-123")).status, 401);
+    // admin DB: akses penuh, tidak bisa menurunkan/menghapus dirinya sendiri
+    const ca = await J("/admin/api/users", { username: "bos", password: "sandi-bos-123", role: "admin" }); assert(ca.body.ok);
+    const B = await login("bos", "sandi-bos-123"); assert.strictEqual((await J("/admin/api/users", undefined, B.h)).status, 200); assert.strictEqual((await J("/admin/api/diagnostics", {}, B.h)).status, 200);
+    assert.strictEqual((await J("/admin/api/users/" + ca.body.id, { role: "staff" }, B.h)).status, 400); assert.strictEqual((await j("/admin/api/users/" + ca.body.id, { method: "DELETE", headers: B.h })).status, 400);
+    assert((await (await fetch(base + "/admin/api/users/" + rid, { method: "DELETE", headers: admin })).json()).deleted);
+    assert.strictEqual((await J("/admin/api/users/" + ca.body.id + "x", {})).status, 404);
+    // akun .env tetap admin penuh & cookie lama (tanpa id) masih jalan
+    assert((await J("/admin/api/me")).body.env === true);
+    console.log("ok  pengguna & hak akses: buat/ubah/hapus, 403 per area, hak berlaku langsung, ganti sandi & nonaktif memutus sesi, admin penuh");
+  }
   srv.close(); s3.close(); process.exit(0);
 })().catch((e) => { console.error("GAGAL:", e); process.exit(1); });

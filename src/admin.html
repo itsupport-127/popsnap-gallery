@@ -28,6 +28,8 @@ nav a:focus-visible,.btn:focus-visible,.out:focus-visible{outline:3px solid var(
 .topbar{display:none}
 h1{margin:0;font-family:Fredoka,"Plus Jakarta Sans",sans-serif;font-style:italic;font-weight:700;font-size:30px;line-height:1.15}
 .lead{margin:2px 0 22px;color:var(--muted)}
+.noperm{display:none!important}
+#m_dlg{overflow:auto;max-height:92vh}
 .page{display:none;max-width:1000px}.page.on{display:block}
 .card{background:#fff;border:2px solid #000;border-radius:18px;padding:18px 20px;margin:0 0 16px;box-shadow:4px 4px 0 rgba(0,0,0,.9)}
 .card>h2{margin:0 0 4px;font-family:Fredoka,"Plus Jakarta Sans",sans-serif;font-style:italic;font-weight:700;font-size:20px}
@@ -115,12 +117,13 @@ tr.blk td{background:#FFF3F5}
  <p class="tag">GALERI · ADMIN</p>
  <nav id="nav">
   <a href="#ringkasan" data-p="ringkasan"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Ringkasan</span></a>
-  <a href="#studio" data-p="studio"><svg viewBox="0 0 24 24"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Studio</span></a>
-  <a href="#link" data-p="link"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg><span>Link pelanggan</span></a>
-  <a href="#penyimpanan" data-p="penyimpanan"><svg viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 17 8.5a4.5 4.5 0 0 1 .5 9Z"/></svg><span>Penyimpanan cloud</span></a>
-  <a href="#pengaturan" data-p="pengaturan"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Pengaturan</span></a>
+  <a href="#studio" data-p="studio" data-need="studio.view"><svg viewBox="0 0 24 24"><path d="M4 8h3l1.5-2h7L17 8h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Studio</span></a>
+  <a href="#link" data-p="link" data-need="link.view"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg><span>Link pelanggan</span></a>
+  <a href="#penyimpanan" data-p="penyimpanan" data-need="storage.view"><svg viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1-.6-7.96A5.5 5.5 0 0 1 17 8.5a4.5 4.5 0 0 1 .5 9Z"/></svg><span>Penyimpanan cloud</span></a>
+  <a href="#pengguna" data-p="pengguna" data-need="@admin"><svg viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.6a3.5 3.5 0 0 1 0 6.8M18 14.2a6.5 6.5 0 0 1 3.5 5.8"/></svg><span>Pengguna</span></a>
+  <a href="#pengaturan" data-p="pengaturan" data-need="settings.edit"><svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg><span>Pengaturan</span></a>
  </nav>
- <div class="sidefoot"><p class="who" id="who"></p><button class="out" onclick="logout()"><svg viewBox="0 0 24 24"><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4M16 8l4 4-4 4M20 12H9"/></svg>Keluar</button></div>
+ <div class="sidefoot"><p class="who" id="who"></p><button class="out" id="pwbtn" type="button" onclick="openPw()" style="margin-bottom:8px">Ganti sandi</button><button class="out" onclick="logout()"><svg viewBox="0 0 24 24"><path d="M9 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4M16 8l4 4-4 4M20 12H9"/></svg>Keluar</button></div>
 </aside>
 <div class="main">
 <section class="page" id="pg-ringkasan">
@@ -132,14 +135,14 @@ tr.blk td{background:#FFF3F5}
   <div class="stat"><b id="s_buckets">–</b><span>Bucket aktif</span></div>
  </div>
  <div class="card"><h2>Alamat publik</h2><p class="muted" style="margin:0 0 6px">Dipakai booth untuk membuat link foto pelanggan.</p><div id="pub" style="font-weight:700;word-break:break-all"></div></div>
- <div class="card"><h2>Cek koneksi</h2><p class="muted" style="margin:0 0 10px">Menguji semua bucket (tulis, baca, hapus), kasir, dan melihat laporan sinkron tiap booth.</p>
+ <div class="card" data-need="storage.view"><h2>Cek koneksi</h2><p class="muted" style="margin:0 0 10px">Menguji semua bucket (tulis, baca, hapus), kasir, dan melihat laporan sinkron tiap booth.</p>
   <p style="margin:0 0 6px"><button class="btn" id="dg_btn" type="button" onclick="runDiag()">Jalankan cek sekarang</button> <span class="muted" id="dg_at"></span></p><div id="dg_out"></div></div>
  <div class="card"><h2>Kapasitas penyimpanan</h2><div id="cap"></div></div>
 </section>
 <section class="page" id="pg-studio">
  <h1>Studio</h1><p class="lead">Pantau studio yang terhubung ke galeri. Daftar dan token studio tetap dikelola di kasir; di sini kamu memantau, memberi catatan, mengatur masa simpan, menggabung nama kembar, atau memutus sambungan.</p>
  <div class="srow"><span class="schip" id="s_cnt">–</span><span class="grow"></span>
-  <button class="btn s" type="button" onclick="loadS()">Segarkan</button><button class="btn" type="button" onclick="openS()">+ Tambah studio</button></div>
+  <button class="btn s" type="button" onclick="loadS()">Segarkan</button><button class="btn" type="button" data-need="studio.edit" onclick="openS()">+ Tambah studio</button></div>
  <div class="card"><div class="tw"><table id="s_t"></table></div><p class="muted" id="s_info" style="margin:10px 0 0"></p></div>
 </section>
 <dialog id="s_dlg"><h2 id="s_dt">Tambah studio</h2>
@@ -152,7 +155,7 @@ tr.blk td{background:#FFF3F5}
 </dialog>
 <section class="page" id="pg-link">
  <h1>Link pelanggan</h1><p class="lead">Semua link foto yang sudah masuk, dari booth maupun unggah manual. Bisa dibuka, disalin, diperpanjang masa berlakunya, diganti nama studionya, atau dihapus. Kalau internet booth bermasalah, unggah hasilnya dari sini.</p>
- <p style="margin:0 0 14px"><button class="btn" id="addu" type="button" onclick="showU()">+ Unggah manual</button></p>
+ <p style="margin:0 0 14px"><button class="btn" id="addu" type="button" data-need="upload" onclick="showU()">+ Unggah manual</button></p>
  <div class="card" id="u_panel" hidden><h2 style="display:flex;justify-content:space-between;align-items:center;gap:10px">Unggah manual <button class="btn sm s" type="button" onclick="hideU()">Tutup</button></h2><div class="muted" style="margin-top:6px">Dipakai kalau internet PC booth bermasalah. Dari PC CS (yang bisa membuka folder hasil booth lewat jaringan bersama), pilih folder hasil, lalu file diunggah lewat website ini ke cloud dan link-nya langsung hidup untuk pelanggan.
 Pilih <b>folder tanggal</b> (mis. <code>2026-10-23</code>) untuk mengunggah banyak sesi sekaligus, atau satu <b>folder sesi</b>. Sesi yang sudah terunggah dilewati otomatis.</div>
 <div class="grid" style="margin-top:10px;max-width:640px">
@@ -169,7 +172,7 @@ Pilih <b>folder tanggal</b> (mis. <code>2026-10-23</code>) untuk mengunggah bany
    <div><label for="l_social">Izin foto</label><select id="l_social"><option value="">Semua</option><option value="sosmed">Boleh sosmed</option><option value="mading">Boleh mading</option><option value="denied">Tidak boleh</option><option value="unknown">Belum dijawab</option></select></div>
    <div><button class="btn s" type="button" onclick="loadL(true)">Segarkan</button></div>
   </div>
-  <div class="bulk" id="l_bulk" hidden><b id="l_sel">0 dipilih</b>
+  <div class="bulk" id="l_bulk" data-need="link.edit" hidden><b id="l_sel">0 dipilih</b>
    <button class="btn sm s" type="button" onclick="bulkExt(7)">Perpanjang +7 hari</button>
    <button class="btn sm s" type="button" onclick="bulkExt(30)">+30 hari</button>
    <button class="btn sm d" type="button" onclick="bulkDel()">Hapus terpilih</button>
@@ -191,7 +194,7 @@ Pilih <b>folder tanggal</b> (mis. <code>2026-10-23</code>) untuk mengunggah bany
 </dialog>
 <section class="page" id="pg-penyimpanan">
  <h1>Penyimpanan cloud</h1><p class="lead">S3 / Cloudflare R2 / Backblaze B2. Sesi baru ditaruh di bucket dengan nomor prioritas terkecil yang masih muat; sama prioritas = dibagi rata. Kalau satu penuh atau gagal, otomatis pindah ke yang lain.</p>
- <p style="margin:0 0 14px"><button class="btn" id="addb" type="button" onclick="showF()">+ Tambah bucket</button></p>
+ <p style="margin:0 0 14px"><button class="btn" id="addb" type="button" data-need="storage.edit" onclick="showF()">+ Tambah bucket</button></p>
  <div class="card" id="bform" hidden><h2 id="ftitle">Tambah bucket</h2>
 <div class="grid" style="margin-top:10px">
 <div><label>Jenis penyimpanan</label><select id="f_kind" onchange="pickKind()"><option value="r2">Cloudflare R2</option><option value="b2">Backblaze B2</option><option value="s3">S3 lain (Wasabi, MinIO, dll.)</option></select></div>
@@ -207,6 +210,26 @@ Pilih <b>folder tanggal</b> (mis. <code>2026-10-23</code>) untuk mengunggah bany
 </div><p class="muted" id="f_hint">R2: buat bucket PRIVATE + API token "Object Read & Write". Endpoint ada di halaman R2 (S3 API). Region: auto.</p><p style="margin:14px 0 0"><button class="btn" onclick="saveB()">Simpan bucket</button> <button class="btn s" onclick="hideF()">Batal</button> <span id="fmsg"></span></p></div>
  <div class="card"><h2>Daftar bucket</h2><div class="tw"><table id="bt"></table></div></div>
 </section>
+<section class="page" id="pg-pengguna">
+ <h1>Pengguna</h1><p class="lead">Buat akun untuk tim dan atur apa saja yang boleh dilakukan tiap orang. Akun admin punya akses penuh. Perubahan hak langsung berlaku tanpa login ulang.</p>
+ <div class="srow"><span class="schip" id="m_cnt">–</span><span class="grow"></span><button class="btn" type="button" onclick="openM()">+ Tambah pengguna</button></div>
+ <div class="card"><div class="tw"><table id="m_t"></table></div><p class="muted" id="m_info" style="margin:10px 0 0"></p></div>
+</section>
+<dialog id="m_dlg"><h2 id="m_dt">Tambah pengguna</h2>
+ <label for="m_un">Username</label><input id="m_un" maxlength="30" autocomplete="off" placeholder="mis. rina">
+ <label for="m_nm" style="margin-top:12px">Nama</label><input id="m_nm" maxlength="60" placeholder="mis. Rina (CS)">
+ <label for="m_pw" style="margin-top:12px" id="m_pwl">Kata sandi</label><input id="m_pw" type="password" autocomplete="new-password" placeholder="minimal 8 karakter">
+ <label for="m_role" style="margin-top:12px">Peran</label><select id="m_role" onchange="mRole()"><option value="staff">Staf (pilih hak akses)</option><option value="admin">Admin (akses penuh, kelola pengguna)</option></select>
+ <div id="m_pbox"><label for="m_preset" style="margin-top:12px">Isi cepat dari paket</label><select id="m_preset" onchange="mPreset()"></select>
+  <div id="m_perms" style="margin-top:10px"></div></div>
+ <label style="display:flex;gap:8px;align-items:center;margin-top:12px;font-weight:600"><input type="checkbox" id="m_act"> Akun aktif (boleh masuk)</label>
+ <p style="margin:14px 0 0"><button class="btn" type="button" onclick="saveM()">Simpan</button> <button class="btn s" type="button" onclick="$('m_dlg').close()">Batal</button> <span id="m_msg"></span></p>
+</dialog>
+<dialog id="pw_dlg"><h2>Ganti kata sandi</h2>
+ <label for="pw_cur">Sandi saat ini</label><input id="pw_cur" type="password" autocomplete="current-password">
+ <label for="pw_new" style="margin-top:12px">Sandi baru (min. 8 karakter)</label><input id="pw_new" type="password" autocomplete="new-password">
+ <p style="margin:14px 0 0"><button class="btn" type="button" onclick="savePw()">Simpan</button> <button class="btn s" type="button" onclick="$('pw_dlg').close()">Batal</button> <span id="pw_msg"></span></p>
+</dialog>
 <section class="page" id="pg-pengaturan">
  <h1>Pengaturan</h1><p class="lead">Aturan umum galeri.</p>
  <div class="card"><h2>Masa simpan file</h2>
@@ -219,13 +242,14 @@ Pilih <b>folder tanggal</b> (mis. <code>2026-10-23</code>) untuk mengunggah bany
 </div></div>
 <script>
 let editId=null;const $=i=>document.getElementById(i);
-const api=async(u,o)=>{const r=await fetch(u,{headers:{'Content-Type':'application/json'},...o});if(r.status===401){location.reload();return {}}return r.json()};
+let ME={perms:[],admin:false,catalog:{},presets:[]};const can=p=>ME.admin||ME.perms.includes(p);
+const api=async(u,o)=>{const r=await fetch(u,{headers:{'Content-Type':'application/json'},...o});if(r.status===401){location.reload();return {}}const d=await r.json();if(r.status===403){toast(d.error||'Tidak punya hak.',1)}return d};
 async function logout(){await fetch('/admin/api/logout',{method:'POST'});location.replace('/admin')}
 async function load(){const s=await api('/admin/api/state');$('ret').value=s.retentionDays;$('zip').value=s.zipMode||(s.zipEnabled===false?'0':'1');
 $('s_sessions').textContent=s.stats.sessions;$('s_files').textContent=s.stats.files;$('s_pending').textContent=s.stats.pending;$('s_buckets').textContent=s.buckets.filter(b=>b.enabled).length;
-$('pub').innerHTML=s.publicUrl?`<a href="${s.publicUrl}" target="_blank" rel="noopener">${s.publicUrl}</a>`:'<span class="bad">(PUBLIC_URL belum diisi di .env!)</span>';$('who').textContent=s.publicUrl?s.publicUrl.replace(/^https?:\/\//,''):'';
-$('cap').innerHTML=s.buckets.length?s.buckets.map(b=>{const pct=b.quotaGB?Math.min(100,Math.round(b.usedGB/b.quotaGB*100)):0;const left=b.quotaGB?Math.max(0,b.quotaGB-b.usedGB):0;const lv=!b.quotaGB?'':(left<=1||pct>=95)?'full':(left<=3||pct>=80)?'warn':'';return `<div style="margin:10px 0"><b>${b.name}</b> <span class="muted">${b.usedGB} GB${b.quotaGB?' / '+b.quotaGB+' GB':' (tanpa batas)'}</span> <span class="pill ${b.enabled?'ok':'bad'}">${b.enabled?'Aktif':'Nonaktif'}</span>${healthPill(b)}${b.quotaGB?`<div class="bar" title="Sisa ${Math.round(left*100)/100} GB"><i class="${lv}" style="width:${pct}%"></i></div>`:''}</div>`}).join(''):'<p class="muted">Belum ada bucket. Tambahkan di menu Penyimpanan cloud.</p>';
-$('bt').innerHTML='<tr><th>Nama</th><th>Bucket</th><th>Prioritas</th><th>Terpakai</th><th>Status</th><th></th></tr>'+s.buckets.map(b=>`<tr><td>${b.name}</td><td>${b.bucket}<div class="muted">${b.endpoint}</div></td><td>${b.priority}</td><td>${b.usedGB} GB${b.quotaGB?' / '+b.quotaGB+' GB':''}</td><td class="${b.enabled?'ok':'bad'}"><b>${b.enabled?'Aktif':'Nonaktif'}</b>${healthChip(b)}<div id="t${b.id}" class="muted"></div></td><td><button class="btn s sm" onclick='editB(${JSON.stringify(b)})'>Ubah</button> <button class="btn s sm" onclick="testB(${b.id})">Tes</button> <button class="btn s sm" onclick="scanB(${b.id})">Pindai</button> <button class="btn d sm" onclick="delB(${b.id})">Hapus</button></td></tr>`).join('')||'<tr><td class="muted">Belum ada bucket. Tambahkan lewat formulir di bawah.</td></tr>';
+$('pub').innerHTML=s.publicUrl?`<a href="${s.publicUrl}" target="_blank" rel="noopener">${s.publicUrl}</a>`:'<span class="bad">(PUBLIC_URL belum diisi di .env!)</span>';
+$('cap').innerHTML=s.buckets.length?s.buckets.map(b=>{const pct=b.quotaGB?Math.min(100,Math.round(b.usedGB/b.quotaGB*100)):0;const left=b.quotaGB?Math.max(0,b.quotaGB-b.usedGB):0;const lv=!b.quotaGB?'':(left<=1||pct>=95)?'full':(left<=3||pct>=80)?'warn':'';return `<div style="margin:10px 0"><b>${he(b.name)}</b> <span class="muted">${b.usedGB} GB${b.quotaGB?' / '+b.quotaGB+' GB':' (tanpa batas)'}</span> <span class="pill ${b.enabled?'ok':'bad'}">${b.enabled?'Aktif':'Nonaktif'}</span>${healthPill(b)}${b.quotaGB?`<div class="bar" title="Sisa ${Math.round(left*100)/100} GB"><i class="${lv}" style="width:${pct}%"></i></div>`:''}</div>`}).join(''):'<p class="muted">Belum ada bucket. Tambahkan di menu Penyimpanan cloud.</p>';
+window.BKS={};s.buckets.forEach(b=>{BKS[b.id]=b});$('bt').innerHTML='<tr><th>Nama</th><th>Bucket</th><th>Prioritas</th><th>Terpakai</th><th>Status</th><th></th></tr>'+s.buckets.map(b=>`<tr><td>${he(b.name)}</td><td>${he(b.bucket)}<div class="muted">${he(b.endpoint)}</div></td><td>${b.priority}</td><td>${b.usedGB} GB${b.quotaGB?' / '+b.quotaGB+' GB':''}</td><td class="${b.enabled?'ok':'bad'}"><b>${b.enabled?'Aktif':'Nonaktif'}</b>${healthChip(b)}<div id="t${b.id}" class="muted"></div></td><td>${can('storage.edit')?`<button class="btn s sm" onclick="editB(BKS[${b.id}])">Ubah</button> <button class="btn s sm" onclick="testB(${b.id})">Tes</button> <button class="btn s sm" onclick="scanB(${b.id})">Pindai</button> <button class="btn d sm" onclick="delB(${b.id})">Hapus</button>`:''}</td></tr>`).join('')||'<tr><td class="muted">Belum ada bucket. Tambahkan lewat formulir di bawah.</td></tr>';
 knownStudios=s.studios;if(typeof fillStudios==='function')fillStudios();}
 async function saveZip(){await api('/admin/api/settings',{method:'POST',body:JSON.stringify({zipEnabled:$('zip').value})});load()}
 async function saveRet(){await api('/admin/api/settings',{method:'POST',body:JSON.stringify({retentionDays:$('ret').value})});load()}
@@ -332,8 +356,8 @@ function drawL(){
   <td>${fmtDt(x.expiresAt)}<div class="${x.expiresAt-Date.now()<864e5?'bad':'muted'}">${leftTxt(x.expiresAt)}</div></td>
   <td><div class="acts"><a class="btn sm s" style="display:inline-flex;align-items:center;text-decoration:none;color:inherit;height:32px;padding:0 12px;border-radius:999px;border:2px solid #000;font-size:13px;font-weight:800;font-style:italic;background:#fff" href="${linkOf(x.token)}" target="_blank" rel="noopener">Buka</a>
    <button class="btn sm s" type="button" onclick="copyL('${x.token}',this)">Salin</button>
-   <button class="btn sm s" type="button" onclick="openL('${x.token}')">Atur</button>
-   <button class="btn sm d" type="button" onclick="delL('${x.token}')">Hapus</button></div></td></tr>`).join(''):'<tr><td class="muted" style="padding:18px 8px">Tidak ada link yang cocok.</td></tr>';
+   ${can('link.edit')?`<button class="btn sm s" type="button" onclick="openL('${x.token}')">Atur</button>
+   <button class="btn sm d" type="button" onclick="delL('${x.token}')">Hapus</button>`:''}</div></td></tr>`).join(''):'<tr><td class="muted" style="padding:18px 8px">Tidak ada link yang cocok.</td></tr>';
  $('l_info').textContent=L.total?`Menampilkan ${rows.length} dari ${L.total} link.`:'';
  $('l_more').hidden=rows.length>=L.total;
  const all=$('l_all');if(all)all.checked=rows.length>0&&rows.every(x=>L.sel.has(x.token));
@@ -428,10 +452,10 @@ function drawS(){
   <td title="${x.lastSeenAt?he(new Date(x.lastSeenAt).toLocaleString('id-ID')):''}">${ago(x.lastSeenAt)}${x.lastEvent?`<div class="muted">${EV[x.lastEvent]||he(x.lastEvent)}${x.lastIp?' · '+he(x.lastIp):''}</div>`:''}</td>
   <td>${syncCell(x)}</td>
   <td>${x.lastUploadAt?ago(x.lastUploadAt):'<span class="muted">–</span>'}</td>
-  <td><div class="acts"><button class="btn sm s" type="button" onclick="seeS('${he(x.key)}')">Lihat link</button>
-   <button class="btn sm s" type="button" onclick="openS('${he(x.key)}')">Edit</button>
-   ${x.blocked?`<button class="btn sm" type="button" onclick="blockS('${he(x.key)}',false)">Sambungkan</button>`:`<button class="btn sm s" type="button" onclick="blockS('${he(x.key)}',true)">Putuskan</button>`}
-   <button class="btn sm d" type="button" onclick="delS('${he(x.key)}')">Hapus</button></div></td></tr>`).join(''):'<tr><td class="muted" style="padding:18px 8px">Belum ada studio. Studio muncul otomatis begitu booth pertama terhubung ke galeri.</td></tr>';
+  <td><div class="acts">${can('link.view')?`<button class="btn sm s" type="button" data-k="${he(x.key)}" onclick="seeS(this.dataset.k)">Lihat link</button>`:''}
+   ${can('studio.edit')?`<button class="btn sm s" type="button" data-k="${he(x.key)}" onclick="openS(this.dataset.k)">Edit</button>
+   ${x.blocked?`<button class="btn sm" type="button" data-k="${he(x.key)}" onclick="blockS(this.dataset.k,false)">Sambungkan</button>`:`<button class="btn sm s" type="button" data-k="${he(x.key)}" onclick="blockS(this.dataset.k,true)">Putuskan</button>`}
+   <button class="btn sm d" type="button" data-k="${he(x.key)}" onclick="delS(this.dataset.k)">Hapus</button>`:''}</div></td></tr>`).join(''):'<tr><td class="muted" style="padding:18px 8px">Belum ada studio. Studio muncul otomatis begitu booth pertama terhubung ke galeri.</td></tr>';
  $('s_info').textContent=S.rows.length?'Online = menghubungi galeri dalam 5 menit terakhir. Booth menghubungi galeri tiap ±1 menit selama aplikasinya menyala dan galeri diaktifkan.':''}
 const sRow=k=>S.rows.find(x=>x.key===k);
 function openS(k){const x=k?sRow(k):null;S.editKey=x?x.key:null;$('s_dt').textContent=x?'Edit studio':'Tambah studio';$('s_nm').value=x?x.name:'';$('s_note').value=x?x.note:'';$('s_ret').value=x&&x.retentionDays?x.retentionDays:'';$('s_msg').textContent='';
@@ -456,17 +480,49 @@ async function delS(k){const x=sRow(k);if(!x)return;
 function seeS(k){const x=sRow(k);if(!x)return;$('l_studio').value='';$('l_source').value='';$('l_q').value=x.name;location.hash='#link'}
 setInterval(()=>{if(location.hash==='#studio'&&!document.hidden)loadS()},15000);
 
+// ---- pengguna & hak akses ----
+const ROLE_TXT=r=>r==='admin'?'Admin':'Staf';let MU={rows:[],edit:null};
+const fmtLast=t=>t?new Date(t).toLocaleString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Belum pernah';
+async function loadM(){const r=await api('/admin/api/users');if(!r||!r.users)return;MU.rows=r.users;
+ $('m_cnt').textContent=r.users.length+' pengguna + admin utama';
+ $('m_t').innerHTML='<tr><th>Pengguna</th><th>Peran / hak akses</th><th>Terakhir masuk</th><th>Status</th><th></th></tr>'+
+  `<tr><td><b>${he(r.envUser)}</b><div class="muted">admin utama (dari file .env)</div></td><td>Admin · akses penuh</td><td class="muted">–</td><td><span class="pill ok">Aktif</span></td><td class="muted">Tidak bisa diubah di sini</td></tr>`+
+  r.users.map(u=>`<tr><td><b>${he(u.name)}</b><div class="muted">${he(u.username)}</div></td><td>${u.role==='admin'?'Admin · akses penuh':'Staf · '+(u.perms.length?u.perms.map(k=>he(ME.catalog[k]||k)).join(', '):'<span class="bad">tanpa hak</span>')}</td><td>${fmtLast(u.lastLoginAt)}</td><td>${u.active?'<span class="pill ok">Aktif</span>':'<span class="pill bad">Nonaktif</span>'}</td><td><div class="acts"><button class="btn sm s" type="button" data-id="${u.id}" onclick="openM(+this.dataset.id)">Edit</button> <button class="btn sm d" type="button" data-id="${u.id}" onclick="delM(+this.dataset.id)">Hapus</button></div></td></tr>`).join('');
+ $('m_info').textContent=''}
+function mBuild(){const box=$('m_perms');if(box.dataset.done)return;box.dataset.done=1;
+ box.innerHTML=Object.entries(ME.catalog).map(([k,t])=>`<label style="display:flex;gap:8px;align-items:center;font-weight:500;margin:6px 0"><input type="checkbox" data-perm="${k}" onchange="mDeps(this)"> ${he(t)}</label>`).join('');
+ $('m_preset').innerHTML='<option value="">Pilih paket…</option>'+ME.presets.map(p=>`<option value="${he(p.id)}">${he(p.label)}</option>`).join('')}
+const mSet=list=>document.querySelectorAll('#m_perms input').forEach(c=>{c.checked=list.includes(c.dataset.perm)});
+function mDeps(c){const imp={'studio.edit':'studio.view','link.edit':'link.view','upload':'link.view','storage.edit':'storage.view'};
+ if(c.checked&&imp[c.dataset.perm])document.querySelector(`#m_perms input[data-perm="${imp[c.dataset.perm]}"]`).checked=true;
+ if(!c.checked)document.querySelectorAll('#m_perms input').forEach(o=>{if(imp[o.dataset.perm]===c.dataset.perm)o.checked=false})}
+function mPreset(){const p=ME.presets.find(x=>x.id===$('m_preset').value);if(p)mSet(p.perms)}
+function mRole(){$('m_pbox').hidden=$('m_role').value==='admin'}
+function openM(id){mBuild();const u=id?MU.rows.find(x=>x.id===id):null;MU.edit=u?u.id:null;$('m_dt').textContent=u?'Edit pengguna':'Tambah pengguna';
+ $('m_un').value=u?u.username:'';$('m_un').disabled=!!u;$('m_nm').value=u?u.name:'';$('m_pw').value='';$('m_pwl').textContent=u?'Kata sandi baru (kosongkan jika tidak diubah)':'Kata sandi';
+ $('m_role').value=u?u.role:'staff';$('m_act').checked=u?u.active:true;mSet(u?u.perms:[]);$('m_preset').value='';mRole();$('m_msg').textContent='';$('m_dlg').showModal()}
+async function saveM(){const body={name:$('m_nm').value.trim(),role:$('m_role').value,active:$('m_act').checked,perms:[...document.querySelectorAll('#m_perms input:checked')].map(c=>c.dataset.perm)};
+ if($('m_pw').value)body.password=$('m_pw').value;let r;
+ if(MU.edit)r=await api('/admin/api/users/'+MU.edit,{method:'POST',body:JSON.stringify(body)});
+ else{body.username=$('m_un').value.trim();r=await api('/admin/api/users',{method:'POST',body:JSON.stringify(body)})}
+ if(r.ok){$('m_dlg').close();toast('Pengguna tersimpan.');loadM()}else{$('m_msg').textContent=r.error||'Gagal menyimpan';$('m_msg').className='bad'}}
+async function delM(id){const u=MU.rows.find(x=>x.id===id);if(!u||!await ask('Hapus pengguna “'+u.username+'”?','Akun ini langsung tidak bisa masuk lagi. Tindakan ini tidak bisa dibatalkan.'))return;
+ const r=await api('/admin/api/users/'+id,{method:'DELETE'});if(r.ok){toast('Pengguna dihapus.');loadM()}else toast(r.error||'Gagal',1)}
+function openPw(){$('pw_cur').value='';$('pw_new').value='';$('pw_msg').textContent='';$('pw_dlg').showModal()}
+async function savePw(){const r=await api('/admin/api/me/password',{method:'POST',body:JSON.stringify({current:$('pw_cur').value,password:$('pw_new').value})});
+ if(r.ok){$('pw_dlg').close();toast('Kata sandi diganti.')}else{$('pw_msg').textContent=r.error||'Gagal';$('pw_msg').className='bad'}}
+function applyMe(){document.querySelectorAll('[data-need]').forEach(el=>{const n=el.dataset.need;el.classList.toggle('noperm',!(n==='@admin'?ME.admin:can(n)))});
+ $('who').textContent=(ME.name||ME.username)+' · '+(ME.admin?'admin':'staf');$('pwbtn').classList.toggle('noperm',!!ME.env)}
 // ---- menu samping (hash: #ringkasan, #studio, #link, #penyimpanan, #pengaturan) ----
-const PAGES=['ringkasan','studio','link','penyimpanan','pengaturan'];
+const PAGES=['ringkasan','studio','link','penyimpanan','pengaturan','pengguna'];
+const pageOk=p=>{const a=document.querySelector(`#nav a[data-p="${p}"]`);return !!a&&!a.classList.contains('noperm')};
 if((location.hash||'')==='#unggah')history.replaceState(null,'','#link'),window.__openU=1; // alamat lama
-function nav(){const id=PAGES.includes((location.hash||'').slice(1))?location.hash.slice(1):'ringkasan';
+function nav(){const id=PAGES.includes((location.hash||'').slice(1))&&pageOk(location.hash.slice(1))?location.hash.slice(1):'ringkasan';
  PAGES.forEach(p=>{$('pg-'+p).className='page'+(p===id?' on':'')});
- document.querySelectorAll('#nav a').forEach(a=>{const on=a.dataset.p===id;a.className=on?'on':'';if(on)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
- document.body.classList.remove('open');window.scrollTo(0,0);if(id==='link')loadL(true);if(id==='studio')loadS();document.title='POPSNAP Galeri — '+document.querySelector('#nav a.on span').textContent}
+ document.querySelectorAll('#nav a').forEach(a=>{const on=a.dataset.p===id;a.classList.toggle('on',on);if(on)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
+ document.body.classList.remove('open');window.scrollTo(0,0);if(id==='link')loadL(true);if(id==='studio')loadS();if(id==='pengguna')loadM();document.title='POPSNAP Galeri — '+document.querySelector('#nav a.on span').textContent}
 window.addEventListener('hashchange',nav);
-window.addEventListener('hashchange',()=>{if(location.hash==='#unggah'){history.replaceState(null,'','#link');nav();showU()}});
+window.addEventListener('hashchange',()=>{if(location.hash==='#unggah'){history.replaceState(null,'','#link');nav();if(can('upload'))showU()}});
 $('ham').addEventListener('click',()=>document.body.classList.toggle('open'));$('scrim').addEventListener('click',()=>document.body.classList.remove('open'));
-nav();
-if(window.__openU)showU();
-load();
+(async()=>{const me=await api('/admin/api/me');if(me&&me.perms)ME=me;applyMe();nav();if(window.__openU&&can('upload'))showU();load()})();
 </script></body></html>
