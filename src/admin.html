@@ -285,9 +285,12 @@ function mapName(rel){ // rel = path di dalam folder sesi
 async function startUpload(list){
   const files=Array.from(list);if(!files.length)return;$('u_msg').textContent='Membaca folder…';$('u_msg').className='muted';
   const rel=f=>f.webkitRelativePath||f.name;
+  // Folder salinan booth (_BOLEH-SOSMED / _BOLEH-MADING) isi & token-nya sama dengan folder aslinya, jadi dilewati (kalau tidak: sesi terhitung 2-3x dan izin foto bisa tertimpa salinan lama).
+  files.splice(0,files.length,...files.filter(f=>!rel(f).split('/').some(seg=>/^_BOLEH-/i.test(seg))));
   // 1) cari berkas popsnap-share.json -> folder sesi
   const sessions=new Map();
   for(const f of files){if(f.name==='popsnap-share.json'){try{const j=JSON.parse(await f.text());if(j&&/^[A-Za-z0-9_-]{10,40}$/.test(j.token)){const parts=rel(f).split('/');parts.pop();sessions.set(parts.join('/'),{token:j.token,social:j.social,mode:j.mode||'photo',code:j.studioCode||'',studioName:j.studioName||'',label:parts[parts.length-1]||j.token,files:[]})}}catch(e){}}}
+  const seenTok=new Set();for(const [dir,s] of [...sessions]){if(seenTok.has(s.token))sessions.delete(dir);else seenTok.add(s.token)} // token kembar (salinan folder lain): ambil satu saja
   const orphan=new Map();
   for(const f of files){
     const parts=rel(f).split('/');let hit=null;
