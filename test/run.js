@@ -381,6 +381,15 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
     const lst = (await J("/admin/api/users")).body.users.find((u) => u.id === rid);
     assert.deepStrictEqual(lst.perms, ["studio.view", "studio.edit", "link.view", "upload"], "hak dinormalkan (edit => lihat, hak asing dibuang): " + lst.perms);
     assert(!JSON.stringify(lst).includes("pass"), "hash sandi tidak boleh bocor");
+    { // data hak akses rusak di database: daftar pengguna & ubah pengguna tidak boleh error 500, akunnya cukup tanpa hak
+      const { db } = require("../src/db");
+      db.prepare("UPDATE users SET perms = ? WHERE id = ?").run("{rusak", rid);
+      const bad = await J("/admin/api/users");
+      assert.strictEqual(bad.status, 200, "daftar pengguna harus tetap terbuka walau ada data hak yang rusak");
+      assert.deepStrictEqual(bad.body.users.find((u) => u.id === rid).perms, [], "data rusak = tanpa hak");
+      assert((await J("/admin/api/users/" + rid, { name: "Rina CS" })).body.ok, "ubah nama pengguna dengan hak rusak harus tetap bisa");
+      db.prepare("UPDATE users SET perms = ? WHERE id = ?").run(JSON.stringify(["studio.view", "studio.edit", "link.view", "upload"]), rid); // kembalikan untuk tes berikutnya
+    }
     assert.strictEqual((await login("rina", "salah-salah")).status, 401);
     const R = await login("Rina", "sandi-rina-1"); assert.strictEqual(R.status, 200, "login pengguna");
     const me = (await J("/admin/api/me", undefined, R.h)).body; assert(!me.admin && me.perms.includes("upload") && !me.perms.includes("storage.edit"), JSON.stringify(me));

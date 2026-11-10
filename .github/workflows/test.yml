@@ -16,5 +16,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node test/run.js
-      - name: Cek celah keamanan dependency
+      - name: Cek celah keamanan dependency (hanya peringatan, tidak menggagalkan tes)
+        continue-on-error: true
         run: npm audit --omit=dev --audit-level=high

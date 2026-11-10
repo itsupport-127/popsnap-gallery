@@ -400,10 +400,11 @@ const PRESETS = [
 ];
 const IMPLIES = { "studio.edit": "studio.view", "link.edit": "link.view", "upload": "link.view", "storage.edit": "storage.view" };
 const normPerms = (list) => { const set = new Set((Array.isArray(list) ? list : []).map(String).filter((x) => x in PERMS)); for (const [k, v] of Object.entries(IMPLIES)) if (set.has(k)) set.add(v); return Object.keys(PERMS).filter((k) => set.has(k)); };
+const parsePerms = (raw) => { try { const v = JSON.parse(raw || "[]"); return Array.isArray(v) ? v : []; } catch { return []; } }; // data hak akses rusak = tanpa hak (jangan sampai menjatuhkan daftar pengguna)
 const hashPw = (pw) => { const salt = crypto.randomBytes(16); return `s1$${salt.toString("base64url")}$${crypto.scryptSync(String(pw), salt, 32).toString("base64url")}`; };
 const checkPw = (pw, stored) => { const [v, sl, h] = String(stored || "").split("$"); if (v !== "s1" || !sl || !h) return false; return sameSig(crypto.scryptSync(String(pw), Buffer.from(sl, "base64url"), 32).toString("base64url"), h); };
 const envAdmin = () => ({ id: 0, username: process.env.ADMIN_USER || "admin", name: "Admin", admin: true, env: true, perms: new Set(Object.keys(PERMS)) });
-const principalOf = (row) => { const admin = row.role === "admin"; let list = []; try { list = JSON.parse(row.perms || "[]"); } catch { /* rusak: tanpa hak */ } return { id: row.id, username: row.username, name: row.name || row.username, admin, env: false, perms: new Set(admin ? Object.keys(PERMS) : normPerms(list)) }; };
+const principalOf = (row) => { const admin = row.role === "admin"; const list = parsePerms(row.perms); return { id: row.id, username: row.username, name: row.name || row.username, admin, env: false, perms: new Set(admin ? Object.keys(PERMS) : normPerms(list)) }; };
 const userSig = (row, exp) => sigOf(`u${row.id}~${exp}~${String(row.pass_hash).slice(-16)}`); // ganti sandi / nonaktif = sesi lama otomatis mati
 const userCookie = (row, req) => { const exp = Date.now() + SESSION_MS; return `${COOKIE}=${row.id}~${exp}.${userSig(row, exp)}; Max-Age=${SESSION_MS / 1000}; ${cookieAttrs(req)}`; };
 function sessionUser(req) {
@@ -505,7 +506,7 @@ app.get("/admin/api/me", adminAuth, (req, res) => {
   const u = req.user;
   res.json({ username: u.username, name: u.name, admin: u.admin, env: u.env, perms: [...u.perms], catalog: PERMS, presets: PRESETS });
 });
-const userRow = (r) => ({ id: r.id, username: r.username, name: r.name, role: r.role, perms: r.role === "admin" ? Object.keys(PERMS) : normPerms(JSON.parse(r.perms || "[]")), active: !!r.active, createdAt: r.created_at, lastLoginAt: r.last_login_at });
+const userRow = (r) => ({ id: r.id, username: r.username, name: r.name, role: r.role, perms: r.role === "admin" ? Object.keys(PERMS) : normPerms(parsePerms(r.perms)), active: !!r.active, createdAt: r.created_at, lastLoginAt: r.last_login_at });
 app.get("/admin/api/users", adminAuth, needAdmin, (_req, res) => {
   res.json({ envUser: process.env.ADMIN_USER || "admin", users: db.prepare("SELECT * FROM users ORDER BY id").all().map(userRow), catalog: PERMS, presets: PRESETS });
 });
@@ -525,7 +526,7 @@ app.post("/admin/api/users/:id", adminAuth, needAdmin, (req, res) => {
   if (!row) return res.status(404).json({ error: "Pengguna tidak ditemukan." });
   const role = b.role == null ? row.role : b.role === "admin" ? "admin" : "staff", active = b.active == null ? row.active : b.active ? 1 : 0;
   if (id === req.user.id && (role !== "admin" || !active)) return res.status(400).json({ error: "Kamu tidak bisa menurunkan atau menonaktifkan akunmu sendiri." });
-  const perms = role === "admin" ? [] : b.perms == null ? normPerms(JSON.parse(row.perms || "[]")) : normPerms(b.perms);
+  const perms = role === "admin" ? [] : b.perms == null ? normPerms(parsePerms(row.perms)) : normPerms(b.perms);
   let hash = row.pass_hash;
   if (b.password) { if (String(b.password).length < 8 || String(b.password).length > 200) return res.status(400).json({ error: "Kata sandi minimal 8 karakter." }); hash = hashPw(b.password); }
   db.prepare("UPDATE users SET name = ?, role = ?, perms = ?, active = ?, pass_hash = ? WHERE id = ?").run(b.name == null ? row.name : cleanName(b.name) || row.username, role, JSON.stringify(perms), active, hash, id);
