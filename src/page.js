@@ -61,10 +61,11 @@ header.bar{position:sticky;top:0;z-index:10;height:calc(var(--u) * 43);backgroun
 nav{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;height:100%}
 nav a{position:relative;display:flex;align-items:center;justify-content:center;color:#fff;text-decoration:none;font-weight:800;font-style:italic;font-size:calc(var(--u) * 20);letter-spacing:.01em}
 nav a+a::before{content:"";position:absolute;left:0;top:calc(var(--u) * 10);height:calc(var(--u) * 26);border-left:.5px solid #8DBFE8}
-nav a img{display:none;position:absolute;z-index:-1;left:calc(-5 / 134 * 100% * 3 / var(--n,3));top:calc(var(--u) * 2);width:calc(147 / 134 * 100% * 3 / var(--n,3));height:calc(var(--u) * 51);pointer-events:none}
+nav a img{display:none;position:absolute;z-index:-1;left:calc(-5 / 134 * 100%);top:calc(var(--u) * 2);width:calc(147 / 134 * 100%);height:calc(var(--u) * 51);pointer-events:none}
 nav a.on img{display:block}
-nav a img.flip{transform:scaleX(-1)}
-nav a span{position:relative}
+nav a img.flip{transform:scaleX(-1);left:calc(-8 / 134 * 100%)}
+nav a span{position:relative;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 calc(var(--u) * 6)}
+nav.many a{font-size:calc(var(--u) * 16)}
 .mlogo{display:block;width:calc(var(--u) * 70);height:auto;margin:calc(var(--u) * 23) auto calc(var(--u) * 25);filter:drop-shadow(0 1px 2px rgba(0,0,0,.25))}
 .panel{display:block}.js .panel{display:none}.js .panel.on{display:block}
 .card{position:relative;margin:0 calc(var(--u) * 14);padding:calc(var(--u) * 43) calc(var(--u) * 14) calc(var(--u) * 16.5);background:#FDB939;border:1px solid #000;border-radius:calc(var(--u) * 41);box-shadow:3px 4px 4px rgba(0,0,0,.2)}
@@ -134,7 +135,7 @@ ${c.rests.length ? restCard(c, c.rests) : ""}
 ${all.length ? zipBtn : ""}
 </div>`;
   }).join("\n");
-  const nav = cats.length > 1 ? `<nav style="--n:${cats.length}">${cats.map((c, i) => `<a href="#${c.id}" data-t="${c.id}"><img src="/assets/${i === 0 || i === cats.length - 1 ? "tab-pill" : "tab-pill-mid"}.svg" alt=""${i > 0 && i === cats.length - 1 ? ' class="flip"' : ""}><span>${esc(c.label)}</span></a>`).join("")}</nav>` : "";
+  const nav = cats.length > 1 ? `<nav${cats.length > 3 ? ' class="many"' : ""} style="--n:${cats.length}">${cats.map((c, i) => `<a href="#${c.id}" data-t="${c.id}"><img src="/assets/${i === 0 || i === cats.length - 1 ? "tab-pill" : "tab-pill-mid"}.svg" alt=""${i > 0 && i === cats.length - 1 ? ' class="flip"' : ""}><span>${esc(c.label)}</span></a>`).join("")}</nav>` : "";
   const codeShown = /^[A-Z0-9]{10}$/.test(token) ? `${token.slice(0, 4)} ${token.slice(4, 8)} ${token.slice(8)}` : token;
   let origin = ""; try { origin = new URL(files.find((f) => f.url)?.url || "").origin; } catch { /* tanpa file */ }
   const firstCat = cats.find((c) => c.id === "photo") ? "photo" : cats[0]?.id || "photo";
