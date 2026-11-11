@@ -194,6 +194,17 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
   const mh = await (await fetch(`${base}/s/${mt}`)).text(); assert(mh.includes("Foto template") && mh.includes("Foto mentah 1") && mh.includes("Studio A"));
   const keys = [...store.keys()].filter((k) => k.includes(mt)); assert.strictEqual(keys.length, 2);
   assert.strictEqual(store.get(keys.find((k) => k.endsWith("final.png"))).toString(), "PNGDATA!");
+  // kasir menarik sesi hasil unggah manual lewat kunci bersama: tanpa kunci (atau kunci salah) ditolak
+  delete process.env.KASIR_API_KEY;
+  assert.strictEqual((await fetch(`${base}/api/v1/recent`)).status, 401, "tanpa KASIR_API_KEY endpoint harus mati");
+  process.env.KASIR_API_KEY = "kunci-kasir-rahasia";
+  assert.strictEqual((await fetch(`${base}/api/v1/recent`, { headers: { Authorization: "Bearer salah" } })).status, 401);
+  const rec = await (await fetch(`${base}/api/v1/recent?days=2`, { headers: { Authorization: "Bearer kunci-kasir-rahasia" } })).json();
+  const recMine = rec.sessions.find((x) => x.token === mt);
+  assert(recMine && recMine.studio === "Studio A" && recMine.code === "ABC" && recMine.mode === "photo" && recMine.files === 2 && recMine.uploaded === 2, JSON.stringify(rec));
+  assert(!JSON.stringify(rec).includes("PNGDATA"), "tidak boleh membawa isi file");
+  delete process.env.KASIR_API_KEY;
+  console.log("ok  kasir menarik sesi unggah manual lewat kunci bersama (tanpa kunci = mati)");
   // booth menyusul (internet pulih): mengambil alih sesi manual & tidak mengunggah ulang file yang sudah ada
   const Bt = { Authorization: "Bearer tokenstudioB0000000", "Content-Type": "application/json" };
   const adopt = await j("/api/v1/sessions", { method: "POST", headers: Bt, body: JSON.stringify({ token: mt, files: [{ fid: "final", kind: "final", ext: "png", size: 8 }, { fid: "raw1", kind: "raw", idx: 1, ext: "jpg", size: 6 }, { fid: "gif", kind: "gif", ext: "gif", size: 7 }] }) });

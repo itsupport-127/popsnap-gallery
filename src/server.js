@@ -259,6 +259,23 @@ app.post("/api/v1/status", (req, res) => {
   res.set("Cache-Control", "no-store").json({ ok: true, sessions: out });
 });
 
+// Daftar sesi terbaru untuk KASIR: kasir menarik sesi yang belum punya transaksi (mis. hasil UNGGAH MANUAL saat internet booth mati)
+// supaya tombol WhatsApp di kasir tetap bisa dipakai seperti biasa. Dilindungi kunci bersama (env KASIR_API_KEY di galeri =
+// POPSNAP_GALLERY_KEY di kasir); tanpa kunci endpoint ini mati. Hanya data ringkas, bukan isi/link file.
+app.get("/api/v1/recent", (req, res) => {
+  const key = process.env.KASIR_API_KEY || "";
+  const given = String(req.get("authorization") || "").replace(/^Bearer\s+/i, "");
+  if (!key || !given || !safeEq(given, key)) return res.status(401).set("Cache-Control", "no-store").json({ ok: false, error: "Kunci kasir salah atau belum diatur." });
+  const days = Math.max(1, Math.min(30, parseInt(req.query.days, 10) || 3));
+  const since = now() - days * 86400000;
+  const rows = db.prepare(`SELECT s.token, s.studio, s.studio_code AS code, s.mode, s.social, s.created_at AS createdAt,
+      (SELECT COUNT(*) FROM files f WHERE f.token = s.token) AS files,
+      (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'ok') AS uploaded
+    FROM sessions s WHERE s.created_at >= ? AND s.expires_at > ? AND EXISTS (SELECT 1 FROM files f WHERE f.token = s.token)
+    ORDER BY s.created_at DESC LIMIT 500`).all(since, now());
+  res.set("Cache-Control", "no-store").json({ ok: true, sessions: rows });
+});
+
 // Booth menghapus sesi (transaksi dihapus/diedit di kasir): halaman langsung tidak bisa dibuka, file dibersihkan dari bucket.
 // Idempoten: sesi yang sudah tidak ada dianggap selesai. Sisa file (kalau bucket sedang bermasalah) dibereskan cleanup berkala.
 app.delete("/api/v1/sessions/:token", async (req, res) => {
