@@ -161,7 +161,7 @@ Pilih <b>folder tanggal</b> (mis. <code>2026-10-23</code>) untuk mengunggah bany
 <div class="grid" style="margin-top:10px;max-width:640px">
 <div><label>Nama studio (kalau belum terbaca otomatis)</label><input id="u_studio" list="studios" placeholder="mis. Studio Emma"><datalist id="studios"></datalist></div>
 <div style="align-self:end"><button class="btn" onclick="document.getElementById('u_dir').click()">Pilih folder…</button> <button class="btn s" onclick="document.getElementById('u_files').click()">Pilih file…</button>
-<input id="u_dir" type="file" webkitdirectory multiple hidden onchange="startUpload(this.files)"><input id="u_files" type="file" multiple hidden onchange="startUpload(this.files)"></div></div>
+<input id="u_dir" type="file" webkitdirectory multiple hidden onchange="var l=Array.from(this.files);this.value='';startUpload(l)"><input id="u_files" type="file" multiple hidden onchange="var l=Array.from(this.files);this.value='';startUpload(l)"></div></div>
 
 <p id="u_msg" class="muted"></p><div class="tw"><table id="u_t"></table></div></div>
  <div class="card">
@@ -282,7 +282,11 @@ function mapName(rel){ // rel = path di dalam folder sesi
   if(p.length===2&&p[0]==='raw'){const r=/^shot-(\d+)$/.exec(base);return r?{fid:'raw'+r[1],kind:'raw',idx:+r[1],ext}:null}
   if(p.length===2&&p[0]==='clips'){const r=/^clip-(\d+)$/.exec(base);return r?{fid:'clip'+r[1],kind:'clip',idx:+r[1],ext}:null}
   return null}
+var upBusy=false;
 async function startUpload(list){
+  if(upBusy){$('u_msg').textContent='Masih mengunggah folder sebelumnya. Tunggu selesai, lalu pilih folder berikutnya.';$('u_msg').className='bad';return}
+  upBusy=true;try{await startUpload2(list)}finally{upBusy=false}}
+async function startUpload2(list){
   const files=Array.from(list);if(!files.length)return;$('u_msg').textContent='Membaca folder…';$('u_msg').className='muted';
   const rel=f=>f.webkitRelativePath||f.name;
   // Folder salinan / penanda booth (_BOLEH-SOSMED, _BOLEH-MADING, _BOLEH-KEDUANYA, _TIDAK-BOLEH, _BELUM-DIJAWAB) isi & token-nya sama dengan folder aslinya, jadi dilewati (kalau tidak: sesi terhitung 2-3x dan izin foto bisa tertimpa salinan lama).
