@@ -219,7 +219,13 @@ app.post("/api/v1/sessions/:token/done", async (req, res) => {
     if (!row || skey(row.studio) !== skey(a.studio)) return res.status(404).json({ error: "File tidak ditemukan." });
     if (!studioGuard(a, req, res, "upload")) return;
     const b = bucketById(row.bucket_id);
-    const r = await s3.call(b, "HEAD", row.key, { timeoutMs: 15000 }).catch(() => null);
+    // Cek berkas ke cloud: ulangi (maks 3x) kalau telat / gagal sesaat. Dulu sekali coba -> "belum ada di cloud" padahal PUT sukses dan berkasnya sudah ada.
+    let r = null;
+    for (let i = 0; i < 3; i++) {
+      r = await s3.call(b, "HEAD", row.key, { timeoutMs: 15000 }).catch(() => null);
+      if (r && (r.ok || r.status === 403)) break; // 403 = kunci salah: mengulang tidak menolong
+      if (i < 2) await new Promise((ok) => setTimeout(ok, 700 * (i + 1)));
+    }
     if (!r || !r.ok) return res.status(409).json({ error: `File belum ada di cloud (${r ? r.status : "tidak terjangkau"}).` });
     const len = Number(r.headers.get("content-length")) || row.size;
     db.prepare("UPDATE files SET state = 'ok', size = ?, uploaded_at = ? WHERE id = ?").run(len, now(), row.id);
