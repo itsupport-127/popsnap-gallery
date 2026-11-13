@@ -58,7 +58,7 @@ async function testBucket(b) {
     const put = await s3.call(b, "PUT", key, { body, headers: { "Content-Type": "text/plain" }, timeoutMs: 15000 });
     if (!put.ok) return { ok: false, step: "tulis", ms: Date.now() - t0, error: put.status === 403 ? "Access key / secret key salah atau tidak punya izin Object Read & Write (HTTP 403)." : put.status === 404 ? "Nama bucket atau endpoint tidak ditemukan (HTTP 404)." : `Gagal menulis (HTTP ${put.status}).` };
     const get = await s3.call(b, "GET", key, { timeoutMs: 15000 }); const txt = await get.text();
-    await s3.call(b, "DELETE", key, { timeoutMs: 15000 }).catch(() => {});
+    await s3.call(b, "DELETE", key, { timeoutMs: 15000 }).catch((e) => console.warn("[bucket-test] gagal menghapus berkas tes", key, e.message));
     const ok = get.ok && txt === body;
     return { ok, step: "baca", ms: Date.now() - t0, error: ok ? null : `Gagal membaca (HTTP ${get.status})` };
   } catch (e) { return { ok: false, ms: Date.now() - t0, error: e.name === "AbortError" ? "Timeout menghubungi endpoint." : `Tidak terhubung: ${e.cause?.code || e.message}` }; }
