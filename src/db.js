@@ -64,6 +64,10 @@ CREATE INDEX IF NOT EXISTS idx_sessions_exp ON sessions(expires_at);
 try { db.exec("ALTER TABLE sessions ADD COLUMN manual INTEGER NOT NULL DEFAULT 0"); } catch { /* sudah ada */ }
 // Izin foto dari tamu: bit 1 = boleh di sosmed, bit 2 = boleh dipajang di mading (3 = keduanya, 0 = tidak, NULL = belum dijawab)
 try { db.exec("ALTER TABLE sessions ADD COLUMN social INTEGER"); } catch { /* sudah ada */ }
+// Nomor transaksi photobox/kasir (PB-<studio>-<tanggal>-<urut>): supaya satu sesi bisa dilacak dengan DUA kode: kode link (token) dan nomor transaksi.
+// Tidak unik di tingkat tabel (unggah manual bisa terlanjur membuat link kembar); kembar ditandai di daftar link.
+try { db.exec("ALTER TABLE sessions ADD COLUMN tx_no TEXT"); } catch { /* sudah ada */ }
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_sessions_tx ON sessions(tx_no)"); } catch { /* abaikan */ }
 
 // Daftar studio yang dikenal galeri. Sumber nama & token tetap KASIR; di sini hanya status pantauan + pengaturan sisi galeri.
 db.exec(`CREATE TABLE IF NOT EXISTS studios (

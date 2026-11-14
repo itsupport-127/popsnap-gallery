@@ -279,6 +279,7 @@ let knownStudios=[];
 const rnd=()=>{const a=new Uint8Array(10);crypto.getRandomValues(a);return Array.from(a,x=>'23456789ABCDEFGHJKLMNPQRSTUVWXYZ'[x%32]).join('')};
 // Token TETAP untuk folder tanpa popsnap-share.json: folder yang sama dipilih lagi = link yang sama (file yang sudah ada dilewati), bukan link kembar.
 const _h=(s,seed)=>{let a=0xdeadbeef^seed,b=0x41c6ce57^seed;for(let i=0;i<s.length;i++){const c=s.charCodeAt(i);a=Math.imul(a^c,2654435761);b=Math.imul(b^c,1597334677)}a=Math.imul(a^(a>>>16),2246822507)^Math.imul(b^(b>>>13),3266489909);b=Math.imul(b^(b>>>16),2246822507)^Math.imul(a^(a>>>13),3266489909);return[a>>>0,b>>>0]};
+const txFromLabel=l=>{const m=String(l||'').toUpperCase().match(/^PB-[A-Z0-9]{3,8}-\d{6}-\d{3,6}$/);return m?m[0]:undefined}; // nama folder arsip booth = nomor transaksi
 const detTok=s=>{const A='23456789ABCDEFGHJKLMNPQRSTUVWXYZ',n=[..._h(s,1),..._h(s,7)];let o='';for(let i=0;i<10;i++)o+=A[(n[i%4]>>>(Math.floor(i/4)*5))&31];return o};
 function mapName(rel){ // rel = path di dalam folder sesi
   const p=rel.split('/'),n=p[p.length-1],m=/^(.*)\.([A-Za-z0-9]+)$/.exec(n);if(!m)return null;const base=m[1].toLowerCase(),ext=m[2].toLowerCase();
@@ -297,7 +298,7 @@ async function startUpload2(list){
   files.splice(0,files.length,...files.filter(f=>!rel(f).split('/').some(seg=>/^_(BOLEH-|TIDAK-BOLEH|BELUM-DIJAWAB)/i.test(seg))));
   // 1) cari berkas popsnap-share.json -> folder sesi
   const sessions=new Map();
-  for(const f of files){if(f.name==='popsnap-share.json'){try{const j=JSON.parse(await f.text());if(j&&/^[A-Za-z0-9_-]{10,40}$/.test(j.token)){const parts=rel(f).split('/');parts.pop();sessions.set(parts.join('/'),{token:j.token,social:j.social,mode:j.mode||'photo',code:j.studioCode||'',studioName:j.studioName||'',label:parts[parts.length-1]||j.token,files:[]})}}catch(e){}}}
+  for(const f of files){if(f.name==='popsnap-share.json'){try{const j=JSON.parse(await f.text());if(j&&/^[A-Za-z0-9_-]{10,40}$/.test(j.token)){const parts=rel(f).split('/');parts.pop();sessions.set(parts.join('/'),{token:j.token,txNo:j.txNo||txFromLabel(parts[parts.length-1]),social:j.social,mode:j.mode||'photo',code:j.studioCode||'',studioName:j.studioName||'',label:parts[parts.length-1]||j.token,files:[]})}}catch(e){}}}
   const seenTok=new Set();for(const [dir,s] of [...sessions]){if(seenTok.has(s.token))sessions.delete(dir);else seenTok.add(s.token)} // token kembar (salinan folder lain): ambil satu saja
   const orphan=new Map();
   for(const f of files){
@@ -306,7 +307,7 @@ async function startUpload2(list){
     if(hit){const m=mapName(rel(f).slice(hit.dir?hit.dir.length+1:0));if(m)hit.s.files.push({...m,size:f.size,file:f})}
     else if(parts.length>=2){ // folder sesi tanpa popsnap-share.json: token baru (link baru, bagikan ke pelanggan)
       const dir=parts.slice(0,-1).join('/');const root=/^(raw|clips)$/.test(parts[parts.length-2])?parts.slice(0,-2).join('/'):dir;
-      if(!orphan.has(root))orphan.set(root,{token:rnd(),mode:'photo',code:'',studioName:'',label:root.split('/').pop()||'sesi',files:[],isNew:true});
+      if(!orphan.has(root))orphan.set(root,{token:rnd(),txNo:txFromLabel(root.split('/').pop()),mode:'photo',code:'',studioName:'',label:root.split('/').pop()||'sesi',files:[],isNew:true});
       const m=mapName(rel(f).slice(root?root.length+1:0));if(m)orphan.get(root).files.push({...m,size:f.size,file:f})}
   }
   for(const s of orphan.values())s.token=detTok(s.label+'|'+s.files.map(f=>f.fid+':'+f.size).sort().join(','));
@@ -319,7 +320,7 @@ async function startUpload2(list){
   for(const r of rows){
     try{
       r.state='mendaftar';render(rows);
-      const pr=await api('/admin/api/upload/prepare',{method:'POST',body:JSON.stringify({token:r.s.token,studio:r.studio,studioCode:r.s.code,mode:r.s.mode,social:r.s.social,files:r.s.files.map(({fid,kind,idx,ext,size})=>({fid,kind,idx,ext,size}))})});
+      const pr=await api('/admin/api/upload/prepare',{method:'POST',body:JSON.stringify({token:r.s.token,txNo:r.s.txNo||undefined,studio:r.studio,studioCode:r.s.code,mode:r.s.mode,social:r.s.social,files:r.s.files.map(({fid,kind,idx,ext,size})=>({fid,kind,idx,ext,size}))})});
       if(pr.error)throw new Error(pr.error);
       r.link=pr.shareUrl;const byFid=new Map(r.s.files.map(f=>[f.fid,f]));r.total=pr.uploads.length;
       // 4 file sekaligus (dulu satu per satu = lambat); satu file gagal tidak menghentikan yang lain.
@@ -364,7 +365,7 @@ async function loadL(reset){
 function drawL(){
  const rows=L.rows;
  $('l_t').innerHTML=rows.length?'<tr><th><input type="checkbox" id="l_all" aria-label="Pilih semua" onchange="selAll(this.checked)"></th><th>Kode</th><th>Studio</th><th>File</th><th>Izin foto</th><th>Dibuat</th><th>Berlaku sampai</th><th></th></tr>'+rows.map(x=>`<tr><td><input type="checkbox" aria-label="Pilih ${he(x.token)}" ${L.sel.has(x.token)?'checked':''} onchange="selOne('${x.token}',this.checked)"></td>
-  <td><span class="code">${he(fmtTok(x.token))}</span><div class="muted">${x.manual?'Unggah manual':'Dari booth'}</div></td>
+  <td><span class="code">${he(fmtTok(x.token))}</span>${x.txNo?`<div class="muted" style="font-family:monospace">${he(x.txNo)}</div>`:''}<div class="muted">${x.manual?'Unggah manual':'Dari booth'}</div>${x.dupTx?`<div class="bad" title="Ada ${x.dupTx} link lain dengan nomor transaksi yang sama (mis. unggah manual terlanjur membuat link baru). Cari nomor ini untuk melihat semuanya.">⚠ kembar ${x.dupTx}</div>`:''}</td>
   <td>${he(x.studio)}${x.studioCode?`<div class="muted">${he(x.studioCode)}</div>`:''}</td>
   <td>${x.files} file<div class="muted">${fmtBytes(x.bytes)}${x.pending?` · ${x.pending} menunggu`:''}</div></td>
   <td>${socBadge(x.social)}</td>
@@ -382,7 +383,7 @@ function selOne(t,on){on?L.sel.add(t):L.sel.delete(t);drawL()}
 function selAll(on){L.rows.forEach(x=>on?L.sel.add(x.token):L.sel.delete(x.token));drawL()}
 async function copyL(t,b){const u=linkOf(t);try{await navigator.clipboard.writeText(u)}catch{const i=document.createElement('input');i.value=u;document.body.appendChild(i);i.select();document.execCommand('copy');i.remove()}const o=b.textContent;b.textContent='Tersalin';setTimeout(()=>b.textContent=o,1200)}
 const toLocalInput=t=>{const d=new Date(t-new Date(t).getTimezoneOffset()*6e4);return d.toISOString().slice(0,16)};
-function openL(t){const x=L.rows.find(r=>r.token===t);if(!x)return;L.editTok=t;$('l_dt').textContent='Atur link '+fmtTok(t);$('l_exp').value=toLocalInput(x.expiresAt);$('l_nm').value=x.studio;$('l_msg').textContent='';$('l_dlg').showModal()}
+function openL(t){const x=L.rows.find(r=>r.token===t);if(!x)return;L.editTok=t;$('l_dt').textContent='Atur link '+fmtTok(t)+(x.txNo?' · '+x.txNo:'');$('l_exp').value=toLocalInput(x.expiresAt);$('l_nm').value=x.studio;$('l_msg').textContent='';$('l_dlg').showModal()}
 function setExp(d){$('l_exp').value=toLocalInput(Date.now()+d*864e5)}
 async function saveL(){const x=L.rows.find(r=>r.token===L.editTok);if(!x)return;const body={};const exp=new Date($('l_exp').value).getTime();
  if(Number.isFinite(exp)&&Math.abs(exp-x.expiresAt)>=60000)body.expiresAt=exp;const nm=$('l_nm').value.trim();if(nm!==x.studio)body.studio=nm;

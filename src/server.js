@@ -158,8 +158,15 @@ app.post("/api/v1/heartbeat", async (req, res) => {
 /** Daftarkan sesi + file, kembalikan daftar yang perlu diunggah. Dipakai booth (token studio) dan unggah manual dari website (login admin). */
 // Izin foto dari tamu: bit 1 = boleh di sosmed, bit 2 = boleh dipajang di mading (3 = keduanya, 0 = tidak, NULL = belum dijawab)
 const normSocial = (v) => (v === null || v === undefined || v === "" ? undefined : Number.isInteger(Number(v)) && Number(v) >= 0 && Number(v) <= 3 ? Number(v) : undefined);
-function registerSession(studio, { token, mode, studioCode, files, retry, manual, social }) {
+const normTx = (v) => { const s = String(v ?? "").trim().toUpperCase(); return /^[A-Z0-9][A-Z0-9._-]{3,39}$/.test(s) ? s : null; };
+function registerSession(studio, { token, mode, studioCode, files, retry, manual, social, txNo }) {
   token = normToken(token);
+  const tx = normTx(txNo);
+  // Unggah manual untuk folder yang punya nomor transaksi tapi tanpa popsnap-share.json: kalau sesi dengan nomor itu SUDAH ada (dari booth), pakai linknya (tidak bikin link kembar)
+  if (manual && tx && TOKEN_RE.test(String(token)) && !db.prepare("SELECT 1 FROM sessions WHERE token = ?").get(token)) {
+    const other = db.prepare("SELECT token FROM sessions WHERE tx_no = ? AND expires_at > ? ORDER BY manual ASC, created_at ASC LIMIT 1").get(tx, now());
+    if (other) token = other.token;
+  }
   if (!TOKEN_RE.test(String(token))) return { status: 400, error: "Token sesi tidak valid." };
   if (!Array.isArray(files) || files.length > MAX_FILES) return { status: 400, error: "Daftar file tidak valid." };
   let sess = db.prepare("SELECT * FROM sessions WHERE token = ?").get(token);
@@ -174,6 +181,8 @@ function registerSession(studio, { token, mode, studioCode, files, retry, manual
       .run(token, studio, safe(studioCode, 20), String(mode || "photo").slice(0, 12), t, t + (db.prepare("SELECT retention_days r FROM studios WHERE skey = ?").get(skey(studio))?.r || retentionDays()) * 86400000, manual ? 1 : 0);
     sess = db.prepare("SELECT * FROM sessions WHERE token = ?").get(token);
   }
+  if (tx && !sess.tx_no) { db.prepare("UPDATE sessions SET tx_no = ? WHERE token = ?").run(tx, token); sess.tx_no = tx; }
+  else if (tx && sess.tx_no && sess.tx_no !== tx) console.warn(`[galeri] token ${token} sudah tercatat untuk transaksi ${sess.tx_no}, kiriman baru membawa ${tx}: nomor lama dipertahankan`);
   const soc = normSocial(social);
   if (soc !== undefined && soc !== sess.social) db.prepare("UPDATE sessions SET social = ? WHERE token = ?").run(soc, token);
   const uploads = [], skipped = [];
@@ -197,7 +206,7 @@ function registerSession(studio, { token, mode, studioCode, files, retry, manual
       .run(token, fid, kind, Math.max(0, Math.min(99, Number(f.idx) || 0)), ext, size, bucket.id, key, now());
     uploads.push({ fid: f.fid, url: s3.presign(bucket, "PUT", key, { expires: 3600 }), contentType: EXTS[ext] });
   }
-  return { status: 200, body: { ok: true, shareUrl: PUBLIC_URL() ? `${PUBLIC_URL()}/s/${token}` : `/s/${token}`, expiresAt: sess.expires_at, uploads, skipped } };
+  return { status: 200, body: { ok: true, token, txNo: sess.tx_no || null, shareUrl: PUBLIC_URL() ? `${PUBLIC_URL()}/s/${token}` : `/s/${token}`, expiresAt: sess.expires_at, uploads, skipped } };
 }
 
 app.post("/api/v1/sessions", async (req, res) => {
@@ -258,11 +267,19 @@ app.post("/api/v1/status", (req, res) => {
   for (const raw of list) {
     const token = normToken(raw);
     if (!TOKEN_RE.test(String(token))) continue;
-    const s = db.prepare("SELECT token, social, expires_at FROM sessions WHERE token = ?").get(token);
-    const files = s ? db.prepare("SELECT COUNT(*) n FROM files WHERE token = ? AND state = 'ok'").get(token).n : 0;
-    out[raw] = { exists: !!s, files, expired: !!s && s.expires_at < now(), social: s ? s.social : null };
+    const s = db.prepare("SELECT token, social, expires_at, tx_no FROM sessions WHERE token = ?").get(token);
+    const c = s ? db.prepare("SELECT SUM(state = 'ok') ok, SUM(state != 'ok') pending FROM files WHERE token = ?").get(token) : null;
+    const files = c?.ok || 0, pending = c?.pending || 0;
+    out[raw] = { exists: !!s, files, pending, total: files + pending, expired: !!s && s.expires_at < now(), social: s ? s.social : null, txNo: s?.tx_no || null };
   }
-  res.set("Cache-Control", "no-store").json({ ok: true, sessions: out });
+  // Pencarian lewat NOMOR TRANSAKSI: dipakai kasir untuk mengenali sesi yang terunggah dengan kode link lain (mis. unggah manual lama / link kembar)
+  const orders = {};
+  for (const raw of (Array.isArray(req.body?.orders) ? req.body.orders.slice(0, 60) : [])) {
+    const tx = normTx(raw); if (!tx) continue;
+    orders[raw] = db.prepare(`SELECT s.token, s.expires_at < ? expired, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'ok') files, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state != 'ok') pending
+      FROM sessions s WHERE s.tx_no = ? ORDER BY files DESC, s.created_at ASC LIMIT 5`).all(now(), tx).map((r) => ({ token: r.token, files: r.files, pending: r.pending, expired: !!r.expired }));
+  }
+  res.set("Cache-Control", "no-store").json({ ok: true, sessions: out, orders });
 });
 
 // Daftar sesi terbaru untuk KASIR: kasir menarik sesi yang belum punya transaksi (mis. hasil UNGGAH MANUAL saat internet booth mati)
@@ -492,9 +509,9 @@ app.post("/admin/api/upload/prepare", adminAuth, need("upload"), (req, res) => {
   const b = req.body || {};
   const studio = String(b.studio || "").trim().slice(0, 60);
   if (!studio) return res.status(400).json({ error: "Nama studio wajib diisi." });
-  const r = registerSession(ensureStudio(studio).name, { token: b.token, mode: b.mode, studioCode: b.studioCode, files: b.files, retry: b.retry, manual: true, social: b.social });
+  const r = registerSession(ensureStudio(studio).name, { token: b.token, mode: b.mode, studioCode: b.studioCode, files: b.files, retry: b.retry, manual: true, social: b.social, txNo: b.txNo });
   if (r.error) return res.status(r.status).json({ error: r.error });
-  res.json({ ...r.body, uploads: r.body.uploads.map((u) => ({ fid: u.fid, path: `/admin/api/upload/${normToken(b.token)}/${safe(u.fid, 30)}`, contentType: u.contentType })) });
+  res.json({ ...r.body, uploads: r.body.uploads.map((u) => ({ fid: u.fid, path: `/admin/api/upload/${r.body.token}/${safe(u.fid, 30)}`, contentType: u.contentType })) });
 });
 // Isi file diteruskan (streaming) ke bucket: tidak disimpan di VPS & tidak perlu mengatur CORS bucket.
 app.put("/admin/api/upload/:token/:fid", adminAuth, need("upload"), async (req, res) => {
@@ -650,12 +667,12 @@ app.delete("/admin/api/studios/:key", adminAuth, need("studio.edit"), async (req
 
 // ---- Link pelanggan (sesi): lihat semua, cari, ubah masa berlaku / nama studio, hapus ----
 const likeEsc = (x) => String(x).replace(/[\\%_]/g, (c) => "\\" + c);
-const sessRow = (r) => ({ token: r.token, studio: r.studio, studioCode: r.studio_code || "", mode: r.mode || "", manual: !!r.manual, social: r.social == null ? null : r.social, createdAt: r.created_at, expiresAt: r.expires_at, files: r.files, pending: r.pending, bytes: r.bytes });
+const sessRow = (r) => ({ token: r.token, studio: r.studio, studioCode: r.studio_code || "", mode: r.mode || "", manual: !!r.manual, txNo: r.tx_no || "", dupTx: r.dup_tx || 0, social: r.social == null ? null : r.social, createdAt: r.created_at, expiresAt: r.expires_at, files: r.files, pending: r.pending, bytes: r.bytes });
 app.get("/admin/api/sessions", adminAuth, need("link.view"), (req, res) => {
   const q = String(req.query.q || "").trim().slice(0, 60), studio = String(req.query.studio || "").slice(0, 80), source = String(req.query.source || "");
   const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 30)), offset = Math.max(0, Number(req.query.offset) || 0);
   const w = [], a = [];
-  if (q) { const t = likeEsc(q.replace(/[\s-]/g, "")), n = likeEsc(q); w.push("(s.token LIKE ? ESCAPE '\\' COLLATE NOCASE OR s.studio LIKE ? ESCAPE '\\' OR s.studio_code LIKE ? ESCAPE '\\')"); a.push(`%${t}%`, `%${n}%`, `%${n}%`); }
+  if (q) { const t = likeEsc(q.replace(/[\s-]/g, "")), n = likeEsc(q); w.push("(s.token LIKE ? ESCAPE '\\' COLLATE NOCASE OR s.studio LIKE ? ESCAPE '\\' OR s.studio_code LIKE ? ESCAPE '\\' OR s.tx_no LIKE ? ESCAPE '\\' COLLATE NOCASE)"); a.push(`%${t}%`, `%${n}%`, `%${n}%`, `%${n}%`); }
   if (studio) { w.push("s.studio = ?"); a.push(studio); }
   if (source === "manual") w.push("s.manual = 1"); else if (source === "booth") w.push("s.manual = 0");
   const soc = String(req.query.social || "");
@@ -663,7 +680,7 @@ app.get("/admin/api/sessions", adminAuth, need("link.view"), (req, res) => {
   if (sc) w.push(sc);
   const where = w.length ? "WHERE " + w.join(" AND ") : "";
   const total = db.prepare(`SELECT COUNT(*) n FROM sessions s ${where}`).get(...a).n;
-  const rows = db.prepare(`SELECT s.*, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'ok') files, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'pending') pending, (SELECT COALESCE(SUM(f.size), 0) FROM files f WHERE f.token = s.token AND f.state = 'ok') bytes FROM sessions s ${where} ORDER BY s.created_at DESC LIMIT ? OFFSET ?`).all(...a, limit, offset);
+  const rows = db.prepare(`SELECT s.*, (CASE WHEN s.tx_no IS NULL THEN 0 ELSE (SELECT COUNT(*) FROM sessions d WHERE d.tx_no = s.tx_no AND d.token != s.token) END) dup_tx, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'ok') files, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'pending') pending, (SELECT COALESCE(SUM(f.size), 0) FROM files f WHERE f.token = s.token AND f.state = 'ok') bytes FROM sessions s ${where} ORDER BY s.created_at DESC LIMIT ? OFFSET ?`).all(...a, limit, offset);
   res.json({ total, publicUrl: PUBLIC_URL(), sessions: rows.map(sessRow) });
 });
 const MAX_EXPIRY_MS = 730 * 86400000;
