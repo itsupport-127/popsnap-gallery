@@ -179,6 +179,7 @@ Pilih <b>folder tanggal</b> (mis. <code>2026-10-23</code>) untuk mengunggah bany
    <button class="btn sm s" type="button" onclick="selAll(false)">Batal pilih</button></div>
   <div class="tw"><table id="l_t"></table></div>
   <p class="muted" id="l_info" style="margin:10px 0 0"></p>
+  <p class="muted" id="l_live" style="margin:4px 0 0;font-size:12px" aria-live="off"></p>
   <p style="margin:10px 0 0"><button class="btn s" id="l_more" type="button" onclick="loadL(false)" hidden>Muat lagi</button></p>
  </div>
 </section>
@@ -495,6 +496,34 @@ async function delS(k){const x=sRow(k);if(!x)return;
 function seeS(k){const x=sRow(k);if(!x)return;$('l_studio').value='';$('l_source').value='';$('l_q').value=x.name;location.hash='#link'}
 setInterval(()=>{if(location.hash==='#studio'&&!document.hidden)loadS()},15000);
 
+// ---- Live update: angka & daftar di layar diperbarui sendiri (tanpa memuat ulang halaman) ----
+// Hanya saat tab terlihat; dilewati bila ada dialog terbuka; daftar baru digambar ulang kalau datanya benar-benar berubah (tidak berkedip, pilihan centang tetap).
+const LIVE_MS=6000;let liveBusy=false,liveN=0;
+async function qjson(u){try{const r=await fetch(u,{headers:{'Content-Type':'application/json'}});if(!r.ok)return null;return await r.json()}catch{return null}} // tanpa reload otomatis saat 401/gangguan jaringan
+const dlgOpen=()=>[...document.querySelectorAll('dialog')].some(d=>d.open);
+function liveMark(ok){const e=$('l_live');if(!e)return;e.textContent=ok?'● Live: diperbarui otomatis, terakhir '+new Date().toLocaleTimeString('id-ID'):'○ Tidak terhubung ke server, mencoba lagi…';e.className=ok?'muted':'bad'}
+async function liveLinks(){
+ const n=L.rows.length,q=new URLSearchParams({q:$('l_q').value.trim(),studio:$('l_studio').value,source:$('l_source').value,social:$('l_social').value,limit:Math.min(100,Math.max(30,n)),offset:0});
+ const r=await qjson('/admin/api/sessions?'+q);if(!r||!r.sessions)return false;
+ if(L.rows.length!==n)return true; // pengguna menekan "Muat lebih"/mengubah filter selagi menunggu: jangan timpa
+ if(JSON.stringify([L.total,L.rows])!==JSON.stringify([r.total,r.sessions])){
+  L.total=r.total;L.pub=r.publicUrl||'';L.rows=r.sessions;
+  const have=new Set(r.sessions.map(x=>x.token));[...L.sel].forEach(t=>{if(!have.has(t))L.sel.delete(t)});drawL()}
+ return true}
+async function liveStats(full){
+ const s=await qjson('/admin/api/state');if(!s||!s.stats)return false;
+ $('s_sessions').textContent=s.stats.sessions;$('s_files').textContent=s.stats.files;$('s_pending').textContent=s.stats.pending;$('s_buckets').textContent=s.buckets.filter(b=>b.enabled).length;
+ const ae=document.activeElement,editing=ae&&/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)&&ae.closest('#pg-ringkasan');
+ if(full&&!editing&&$('bform').hidden)await load(); // batang kapasitas & tabel bucket: tiap ~30 dtk, tidak saat pengguna sedang mengisi formulir
+ return true}
+async function liveTick(){
+ if(liveBusy||document.hidden||dlgOpen())return;liveBusy=true;
+ try{const id=(location.hash||'').slice(1);let ok=true;
+  if(id==='link')ok=await liveLinks();else if(id===''||id==='ringkasan')ok=await liveStats(++liveN%5===0);
+  if(id==='link'||id===''||id==='ringkasan')liveMark(ok)}
+ finally{liveBusy=false}}
+setInterval(liveTick,LIVE_MS);document.addEventListener('visibilitychange',()=>{if(!document.hidden)liveTick()});
+
 // ---- pengguna & hak akses ----
 const ROLE_TXT=r=>r==='admin'?'Admin':'Staf';let MU={rows:[],edit:null};
 const fmtLast=t=>t?new Date(t).toLocaleString('id-ID',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Belum pernah';
@@ -535,7 +564,7 @@ if((location.hash||'')==='#unggah')history.replaceState(null,'','#link'),window.
 function nav(){const id=PAGES.includes((location.hash||'').slice(1))&&pageOk(location.hash.slice(1))?location.hash.slice(1):'ringkasan';
  PAGES.forEach(p=>{$('pg-'+p).className='page'+(p===id?' on':'')});
  document.querySelectorAll('#nav a').forEach(a=>{const on=a.dataset.p===id;a.classList.toggle('on',on);if(on)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});
- document.body.classList.remove('open');window.scrollTo(0,0);if(id==='link')loadL(true);if(id==='studio')loadS();if(id==='pengguna')loadM();document.title='POPSNAP Galeri — '+document.querySelector('#nav a.on span').textContent}
+ document.body.classList.remove('open');window.scrollTo(0,0);if(id==='link')loadL(true);if(id==='studio')loadS();if(id==='pengguna')loadM();if(id==='ringkasan'&&typeof liveTick==='function')liveTick();document.title='POPSNAP Galeri — '+document.querySelector('#nav a.on span').textContent}
 window.addEventListener('hashchange',nav);
 window.addEventListener('hashchange',()=>{if(location.hash==='#unggah'){history.replaceState(null,'','#link');nav();if(can('upload'))showU()}});
 $('ham').addEventListener('click',()=>document.body.classList.toggle('open'));$('scrim').addEventListener('click',()=>document.body.classList.remove('open'));
