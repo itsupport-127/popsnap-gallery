@@ -270,7 +270,7 @@ app.post("/api/v1/status", (req, res) => {
     const s = db.prepare("SELECT token, social, expires_at, tx_no FROM sessions WHERE token = ?").get(token);
     const c = s ? db.prepare("SELECT SUM(state = 'ok') ok, SUM(state != 'ok') pending FROM files WHERE token = ?").get(token) : null;
     const files = c?.ok || 0, pending = c?.pending || 0;
-    out[raw] = { exists: !!s, files, pending, total: files + pending, expired: !!s && s.expires_at < now(), social: s ? s.social : null, txNo: s?.tx_no || null };
+    out[raw] = { exists: !!s, files, pending, total: files + pending, expired: !!s && s.expires_at < now(), expiresAt: s ? s.expires_at : null, social: s ? s.social : null, txNo: s?.tx_no || null };
   }
   // Pencarian lewat NOMOR TRANSAKSI: dipakai kasir untuk mengenali sesi yang terunggah dengan kode link lain (mis. unggah manual lama / link kembar)
   const orders = {};
