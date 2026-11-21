@@ -98,6 +98,12 @@ nav.many a{font-size:calc(var(--u) * 16)}
 .zipb img{width:calc(var(--u) * 11);height:auto}
 .zipb[disabled]{opacity:.6}
 .hint{margin:6px 0 0;color:#fff;font-size:13px;text-align:center}
+.dlist{margin:calc(var(--u) * 10) auto 0;width:min(100%,calc(var(--u) * 300))}
+.dlist summary{list-style:none;cursor:pointer;color:#fff;font-weight:800;font-size:calc(var(--u) * 12.5);text-align:center;padding:4px 0}
+.dlist summary::-webkit-details-marker{display:none}
+.dlist a{display:flex;align-items:center;justify-content:center;gap:calc(var(--u) * 6);height:calc(var(--u) * 23);margin:calc(var(--u) * 7) auto 0;padding:0 calc(var(--u) * 14);background:#fff;border:1px solid #000;border-radius:999px;color:#000;text-decoration:none;font-weight:800;font-size:calc(var(--u) * 11);line-height:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.dlist a:active{transform:scale(.97)}
+.dlist a img{width:calc(var(--u) * 10);height:auto;flex:none}
 .note{color:#fff;text-align:center;font-size:13px;margin:16px 14px 0}
 .code{font-family:"Space Mono",monospace;font-weight:700;letter-spacing:.06em;background:rgba(255,255,255,.18);border-radius:8px;padding:2px 8px}
 footer{text-align:center;color:#fff;opacity:.9;font-size:max(12px,calc(var(--u) * 12));padding:calc(var(--u) * 20) 16px 0;line-height:1.6;position:relative;z-index:1}
@@ -201,9 +207,12 @@ show((location.hash||'').slice(1)||${JSON.stringify(firstCat)});
  var p=c.querySelector('.prev'),n=c.querySelector('.next');if(p)p.addEventListener('click',function(){go(-1)});if(n)n.addEventListener('click',function(){go(1)})});
 [].forEach.call(document.querySelectorAll('.dlall'),function(b){b.addEventListener('click',function(){
  var DL=JSON.parse(b.closest('.panel').getAttribute('data-all')),m=b.parentNode.querySelector('.hint'),i=0,old=b.parentNode.querySelector('.dlist');if(old)old.remove();b.disabled=true;
- function list(){var d=document.createElement('details');d.className='dlist';d.open=true;var h=document.createElement('summary');h.textContent='Ada yang belum terunduh? Ketuk satu per satu:';d.appendChild(h);
-  DL.forEach(function(x,k){var a=document.createElement('a');a.href=x.u;a.download=x.n;a.textContent=(k+1)+'. '+x.n;a.style.cssText='display:block;padding:6px 0;color:#000;word-break:break-all';d.appendChild(a)});m.parentNode.insertBefore(d,m.nextSibling)}
- (function next(){if(i>=DL.length){m.textContent='Selesai ('+DL.length+' file). Browser sering menahan unduhan beruntun: kalau ada yang kurang, pilih Izinkan unduhan berganda atau ketuk file yang kurang di bawah.';list();b.disabled=false;return}
+ var SK='dl:${esc(token)}';function got(){try{return JSON.parse(localStorage.getItem(SK)||'[]')}catch(e){return[]}}function mark(n){try{var g=got();if(g.indexOf(n)<0){g.push(n);localStorage.setItem(SK,JSON.stringify(g))}}catch(e){}}
+ function list(){var g=got(),todo=DL.filter(function(x){return g.indexOf(x.n)<0});if(!todo.length){m.textContent='✓ Semua file sudah kamu unduh.';return}
+  var d=document.createElement('details');d.className='dlist';d.open=true;var h=document.createElement('summary');function cnt(){var n=d.querySelectorAll('a').length;if(!n){d.remove();m.textContent='✓ Semua file sudah kamu unduh.'}else h.textContent='Belum terunduh ('+n+'). Ketuk file di bawah ▾'}d.appendChild(h);
+  todo.forEach(function(x){var a=document.createElement('a');a.href=x.u;a.download=x.n;a.className='dli';a.innerHTML='<img src="/assets/dl.svg" alt="">';a.appendChild(document.createTextNode(x.n));
+   a.addEventListener('click',function(){mark(x.n);setTimeout(function(){a.remove();cnt()},700)});d.appendChild(a)});cnt();m.parentNode.insertBefore(d,m.nextSibling)}
+ (function next(){if(i>=DL.length){m.textContent='Selesai ('+DL.length+' file). Browser sering menahan unduhan beruntun: kalau ada yang kurang, pilih Izinkan unduhan berganda atau ketuk file yang kurang di bawah. Setelah diketuk, file hilang dari daftar.';list();b.disabled=false;return}
   m.textContent='Mengunduh '+(i+1)+' / '+DL.length+'… jangan tutup halaman';var a=document.createElement('a');a.href=DL[i].u;a.download=DL[i].n;a.rel='noopener';document.body.appendChild(a);a.click();a.remove();i++;setTimeout(next,1100)})()})});
 (function(){var box=document.getElementById('mascot');if(!box||(window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches))return;
  var ua=navigator.userAgent,webkit=/iPhone|iPad|iPod/.test(ua)||(/Safari/.test(ua)&&!/Chrome|Chromium|Android|Edg|OPR/.test(ua)),el=null;
