@@ -408,8 +408,8 @@ app.get("/s/:token/all.zip", async (req, res) => {
   const exact = items.every((x) => x.size > 0);
   if (exact) res.set("Content-Length", String(zipSize(items)));
   try {
-    const n = await streamZip(res, items.map((x) => ({ name: x.name, open: async () => (aborted ? null : s3.call(x.f.b, "GET", x.f.key, { timeoutMs: 120000 })) })));
-    if (exact && n !== items.length) res.destroy(); // ada file gagal diambil: putuskan supaya unduhan ditandai gagal, bukan ZIP tidak lengkap
+    const n = await streamZip(res, items.map((x) => ({ name: x.name, open: async () => s3.getRetry(x.f.b, x.f.key, { stop: () => aborted }) })));
+    if (n !== items.length) { console.error(`[zip] ${s.token}: hanya ${n}/${items.length} file masuk, unduhan diputus supaya tidak ada ZIP yang kurang diam-diam`); res.destroy(); } // putuskan: unduhan ditandai gagal (bisa diulang), bukan ZIP kurang
   } catch (e) { console.error("[zip]", e.message); try { res.destroy(); } catch { /* sudah putus */ } }
 });
 

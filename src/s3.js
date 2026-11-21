@@ -45,6 +45,28 @@ async function call(b, method, key, { body, headers, timeoutMs = 30000 } = {}) {
   finally { clearTimeout(timer); }
 }
 
+/**
+ * GET dengan percobaan ulang (untuk unduh ZIP): bucket S3-kompatibel kadang menjawab 429/5xx/putus saat sibuk.
+ * Mengembalikan Response ok, atau null kalau tetap gagal (404 = file memang tidak ada, tidak diulang).
+ * `stop()` -> true menghentikan percobaan (mis. pengunduh sudah menutup halaman).
+ */
+async function getRetry(b, key, { tries = 4, timeoutMs = 120000, stop = () => false, baseDelayMs = 400 } = {}) {
+  let last = "";
+  for (let a = 0; a < tries; a++) {
+    if (stop()) return null;
+    try {
+      const r = await call(b, "GET", key, { timeoutMs });
+      if (r.ok && r.body) return r;
+      last = `HTTP ${r.status}`;
+      try { await r.body?.cancel(); } catch { /* sudah tertutup */ }
+      if (r.status === 404 || r.status === 403) break; // tidak akan berhasil kalau diulang
+    } catch (e) { last = e.name === "AbortError" ? "timeout" : e.message; }
+    if (a < tries - 1) await new Promise((res) => setTimeout(res, baseDelayMs * 2 ** a));
+  }
+  console.error(`[zip] gagal mengambil ${key}: ${last}`);
+  return null;
+}
+
 const unxml = (s) => String(s).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, "&");
 /** Satu halaman daftar objek (maks 1000). Mengembalikan { items: [{key,size,modified}], next } atau melempar error. */
 async function listPage(b, { token, prefix = "", timeoutMs = 30000 } = {}) {
@@ -68,4 +90,4 @@ async function listPage(b, { token, prefix = "", timeoutMs = 30000 } = {}) {
   } finally { clearTimeout(timer); }
 }
 
-module.exports = { presignRaw, presign, call, regionOf, listPage };
+module.exports = { presignRaw, presign, call, getRetry, regionOf, listPage };

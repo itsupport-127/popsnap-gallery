@@ -200,9 +200,11 @@ show((location.hash||'').slice(1)||${JSON.stringify(firstCat)});
   [].forEach.call(s,function(x){var v=x.querySelector('video');if(v&&x!==e)v.pause()});if(window.__pp)window.__pp(c.querySelector('.frame'));warm(i+1);warm(i-1)}
  var p=c.querySelector('.prev'),n=c.querySelector('.next');if(p)p.addEventListener('click',function(){go(-1)});if(n)n.addEventListener('click',function(){go(1)})});
 [].forEach.call(document.querySelectorAll('.dlall'),function(b){b.addEventListener('click',function(){
- var DL=JSON.parse(b.closest('.panel').getAttribute('data-all')),m=b.parentNode.querySelector('.hint'),i=0;b.disabled=true;
- (function next(){if(i>=DL.length){m.textContent='Selesai. Cek folder unduhan. Jika ada yang tidak terunduh, izinkan unduhan berganda lalu coba lagi.';b.disabled=false;return}
-  m.textContent='Mengunduh '+(i+1)+' / '+DL.length+'…';var a=document.createElement('a');a.href=DL[i].u;a.download=DL[i].n;document.body.appendChild(a);a.click();a.remove();i++;setTimeout(next,450)})()})});
+ var DL=JSON.parse(b.closest('.panel').getAttribute('data-all')),m=b.parentNode.querySelector('.hint'),i=0,old=b.parentNode.querySelector('.dlist');if(old)old.remove();b.disabled=true;
+ function list(){var d=document.createElement('details');d.className='dlist';d.open=true;var h=document.createElement('summary');h.textContent='Ada yang belum terunduh? Ketuk satu per satu:';d.appendChild(h);
+  DL.forEach(function(x,k){var a=document.createElement('a');a.href=x.u;a.download=x.n;a.textContent=(k+1)+'. '+x.n;a.style.cssText='display:block;padding:6px 0;color:#000;word-break:break-all';d.appendChild(a)});m.parentNode.insertBefore(d,m.nextSibling)}
+ (function next(){if(i>=DL.length){m.textContent='Selesai ('+DL.length+' file). Browser sering menahan unduhan beruntun: kalau ada yang kurang, pilih Izinkan unduhan berganda atau ketuk file yang kurang di bawah.';list();b.disabled=false;return}
+  m.textContent='Mengunduh '+(i+1)+' / '+DL.length+'… jangan tutup halaman';var a=document.createElement('a');a.href=DL[i].u;a.download=DL[i].n;a.rel='noopener';document.body.appendChild(a);a.click();a.remove();i++;setTimeout(next,1100)})()})});
 (function(){var box=document.getElementById('mascot');if(!box||(window.matchMedia&&matchMedia('(prefers-reduced-motion:reduce)').matches))return;
  var ua=navigator.userAgent,webkit=/iPhone|iPad|iPod/.test(ua)||(/Safari/.test(ua)&&!/Chrome|Chromium|Android|Edg|OPR/.test(ua)),el=null;
  function asImg(){box.innerHTML='';el=document.createElement('img');el.alt='';el.decoding='async';el.src='/assets/animasi-maskot.webp';box.appendChild(el)}
