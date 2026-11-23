@@ -678,6 +678,9 @@ app.get("/admin/api/sessions", adminAuth, need("link.view"), (req, res) => {
   const soc = String(req.query.social || "");
   const sc = { sosmed: "(s.social & 1) = 1", mading: "(s.social & 2) = 2", denied: "s.social = 0", unknown: "s.social IS NULL" }[soc];
   if (sc) w.push(sc);
+  const from = Number(req.query.from) || 0, to = Number(req.query.to) || 0; // ms epoch: dibuat >= from dan < to
+  if (from > 0) { w.push("s.created_at >= ?"); a.push(from); }
+  if (to > 0) { w.push("s.created_at < ?"); a.push(to); }
   const where = w.length ? "WHERE " + w.join(" AND ") : "";
   const total = db.prepare(`SELECT COUNT(*) n FROM sessions s ${where}`).get(...a).n;
   const rows = db.prepare(`SELECT s.*, (CASE WHEN s.tx_no IS NULL THEN 0 ELSE (SELECT COUNT(*) FROM sessions d WHERE d.tx_no = s.tx_no AND d.token != s.token) END) dup_tx, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'ok') files, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'pending') pending, (SELECT COALESCE(SUM(f.size), 0) FROM files f WHERE f.token = s.token AND f.state = 'ok') bytes FROM sessions s ${where} ORDER BY s.created_at DESC LIMIT ? OFFSET ?`).all(...a, limit, offset);

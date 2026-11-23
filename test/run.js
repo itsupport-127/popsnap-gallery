@@ -232,6 +232,15 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
   assert.strictEqual((await j("/admin/api/sessions?q=%25", { headers: admin })).body.total, 0, "tanda % dicari apa adanya, bukan wildcard");
   assert.strictEqual((await j("/admin/api/sessions?source=manual&q=KELOL", { headers: admin })).body.total, 0);
   assert.strictEqual((await j("/admin/api/sessions?limit=1&offset=1", { headers: admin })).body.sessions.length, 1);
+  { // filter tanggal: dibuat >= from dan < to (ms)
+    const n = Date.now(), tot = (qs) => j("/admin/api/sessions?q=KELOL" + qs, { headers: admin }).then((r) => r.body.total);
+    assert.strictEqual(await tot(`&from=${n - 3600e3}&to=${n + 3600e3}`), 2, "sesi baru masuk rentang hari ini");
+    assert.strictEqual(await tot(`&from=${n - 2 * 86400e3}&to=${n - 86400e3}`), 0, "rentang kemarin tidak memuat sesi baru");
+    assert.strictEqual(await tot(`&from=${n + 3600e3}`), 0, "dari tanggal di masa depan -> kosong");
+    assert.strictEqual(await tot(`&to=${n - 3600e3}`), 0, "sampai tanggal di masa lalu -> kosong");
+    assert.strictEqual(await tot("&from=abc&to=xyz"), 2, "nilai sampah diabaikan");
+    console.log("ok  filter tanggal daftar link");
+  }
   const tgt = Date.now() + 20 * 86400000;
   assert.strictEqual((await j("/admin/api/sessions/KELOLA2345", { method: "POST", headers: admin, body: JSON.stringify({ expiresAt: tgt, studio: "Studio <b>Baru</b>" }) })).status, 200);
   const l2 = (await j("/admin/api/sessions?q=KELOLA2345", { headers: admin })).body.sessions[0];
