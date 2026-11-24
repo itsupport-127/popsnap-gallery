@@ -383,7 +383,7 @@ async function loadL(reset){
 function drawL(){
  const rows=L.rows;
  $('l_t').innerHTML=rows.length?'<tr><th><input type="checkbox" id="l_all" aria-label="Pilih semua" onchange="selAll(this.checked)"></th><th>Kode</th><th>Studio</th><th>File</th><th>Izin foto</th><th>Dibuat</th><th>Berlaku sampai</th><th></th></tr>'+rows.map(x=>`<tr><td><input type="checkbox" aria-label="Pilih ${he(x.token)}" ${L.sel.has(x.token)?'checked':''} onchange="selOne('${x.token}',this.checked)"></td>
-  <td><span class="code">${he(fmtTok(x.token))}</span>${x.txNo?`<div class="muted" style="font-family:monospace">${he(x.txNo)}</div>`:''}<div class="muted">${x.manual?'Unggah manual':'Dari booth'}</div>${x.dupTx?`<div class="bad" title="Ada ${x.dupTx} link lain dengan nomor transaksi yang sama (mis. unggah manual terlanjur membuat link baru). Cari nomor ini untuk melihat semuanya.">⚠ kembar ${x.dupTx}</div>`:''}</td>
+  <td><span class="code">${he(fmtTok(x.token))}</span>${x.txNo?`<div class="muted" style="font-family:monospace">${he(x.txNo)}</div>`:''}<div class="muted">${x.manual?'Unggah manual':x.manualFiles?`Dari booth + unggah manual (${x.manualFiles} file)`:'Dari booth'}</div>${x.dupTx?`<div class="bad" title="Ada ${x.dupTx} link lain dengan nomor transaksi yang sama (mis. unggah manual terlanjur membuat link baru). Cari nomor ini untuk melihat semuanya.">⚠ kembar ${x.dupTx}</div>`:''}</td>
   <td>${he(x.studio)}${x.studioCode?`<div class="muted">${he(x.studioCode)}</div>`:''}</td>
   <td>${x.files} file<div class="muted">${fmtBytes(x.bytes)}${x.pending?` · ${x.pending} menunggu`:''}</div></td>
   <td>${socBadge(x.social)}</td>

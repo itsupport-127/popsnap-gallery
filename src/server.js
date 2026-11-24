@@ -237,7 +237,7 @@ app.post("/api/v1/sessions/:token/done", async (req, res) => {
     }
     if (!r || !r.ok) return res.status(409).json({ error: `File belum ada di cloud (${r ? r.status : "tidak terjangkau"}).` });
     const len = Number(r.headers.get("content-length")) || row.size;
-    db.prepare("UPDATE files SET state = 'ok', size = ?, uploaded_at = ? WHERE id = ?").run(len, now(), row.id);
+    db.prepare("UPDATE files SET state = 'ok', size = ?, uploaded_at = ?, via_manual = 1 WHERE id = ?").run(len, now(), row.id);
     db.prepare("UPDATE sessions SET last_file_at = ? WHERE token = ?").run(now(), row.token);
     warmThumb(row);
     res.json({ ok: true });
@@ -667,7 +667,7 @@ app.delete("/admin/api/studios/:key", adminAuth, need("studio.edit"), async (req
 
 // ---- Link pelanggan (sesi): lihat semua, cari, ubah masa berlaku / nama studio, hapus ----
 const likeEsc = (x) => String(x).replace(/[\\%_]/g, (c) => "\\" + c);
-const sessRow = (r) => ({ token: r.token, studio: r.studio, studioCode: r.studio_code || "", mode: r.mode || "", manual: !!r.manual, txNo: r.tx_no || "", dupTx: r.dup_tx || 0, social: r.social == null ? null : r.social, createdAt: r.created_at, expiresAt: r.expires_at, files: r.files, pending: r.pending, bytes: r.bytes });
+const sessRow = (r) => ({ token: r.token, studio: r.studio, studioCode: r.studio_code || "", mode: r.mode || "", manual: !!r.manual, txNo: r.tx_no || "", dupTx: r.dup_tx || 0, social: r.social == null ? null : r.social, createdAt: r.created_at, expiresAt: r.expires_at, files: r.files, pending: r.pending, bytes: r.bytes, manualFiles: r.manual_files || 0 });
 app.get("/admin/api/sessions", adminAuth, need("link.view"), (req, res) => {
   const q = String(req.query.q || "").trim().slice(0, 60), studio = String(req.query.studio || "").slice(0, 80), source = String(req.query.source || "");
   const limit = Math.max(1, Math.min(100, Number(req.query.limit) || 30)), offset = Math.max(0, Number(req.query.offset) || 0);
@@ -683,7 +683,7 @@ app.get("/admin/api/sessions", adminAuth, need("link.view"), (req, res) => {
   if (to > 0) { w.push("s.created_at < ?"); a.push(to); }
   const where = w.length ? "WHERE " + w.join(" AND ") : "";
   const total = db.prepare(`SELECT COUNT(*) n FROM sessions s ${where}`).get(...a).n;
-  const rows = db.prepare(`SELECT s.*, (CASE WHEN s.tx_no IS NULL THEN 0 ELSE (SELECT COUNT(*) FROM sessions d WHERE d.tx_no = s.tx_no AND d.token != s.token) END) dup_tx, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'ok') files, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'pending') pending, (SELECT COALESCE(SUM(f.size), 0) FROM files f WHERE f.token = s.token AND f.state = 'ok') bytes FROM sessions s ${where} ORDER BY s.created_at DESC LIMIT ? OFFSET ?`).all(...a, limit, offset);
+  const rows = db.prepare(`SELECT s.*, (CASE WHEN s.tx_no IS NULL THEN 0 ELSE (SELECT COUNT(*) FROM sessions d WHERE d.tx_no = s.tx_no AND d.token != s.token) END) dup_tx, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'ok') files, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'pending') pending, (SELECT COUNT(*) FROM files f WHERE f.token = s.token AND f.state = 'ok' AND f.via_manual = 1) manual_files, (SELECT COALESCE(SUM(f.size), 0) FROM files f WHERE f.token = s.token AND f.state = 'ok') bytes FROM sessions s ${where} ORDER BY s.created_at DESC LIMIT ? OFFSET ?`).all(...a, limit, offset);
   res.json({ total, publicUrl: PUBLIC_URL(), sessions: rows.map(sessRow) });
 });
 const MAX_EXPIRY_MS = 730 * 86400000;
