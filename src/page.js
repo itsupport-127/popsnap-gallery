@@ -1,5 +1,8 @@
 // Halaman unduh publik. Branding POPSNAP; nama studio kecil di bawah. Atas = hasil template/GIF/video, bawah = foto mentah & klip.
 const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const { getSetting } = require("./db");
+// Merek galeri: nama + logo bisa diganti admin (Pengaturan > Logo & nama galeri). Bawaan POPSNAP.
+const brandName = () => { try { return String(getSetting("brand_name", "") || "").trim().slice(0, 40) || "POPSNAP"; } catch { return "POPSNAP"; } };
 const isVideo = (f) => f.ext === "mp4" || f.ext === "webm";
 
 // Tema yang sama dengan app booth: biru bergradasi + tekstur grain, logo PopSnap, font Fredoka / Plus Jakarta Sans / Space Mono (file di /assets).
@@ -11,7 +14,8 @@ const THEME_CSS = `
 html{background:#4082AE url(/assets/welcome-noise.webp) 0 0/402px 437px}
 body{background:transparent;font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
 .disp{font-family:Fredoka,"Plus Jakarta Sans",system-ui,sans-serif;font-weight:700;font-style:italic}
-.logo{display:block;height:34px;width:auto;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))}
+/* Logo (bawaan POPSNAP / unggahan admin): selalu dimuat utuh di kotak 3:1 supaya logo berbentuk apa pun tidak merusak tata letak */
+.logo{display:block;height:34px;width:auto;aspect-ratio:805/268;object-fit:contain;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))}
 `;
 
 // Layar pembuka "Get your files" (desain Welcome_screen).
@@ -26,19 +30,19 @@ const introCss = `#intro{display:none}
 #intro .bl{bottom:0;left:0;width:calc(var(--ud) * 160)}
 #intro .br{bottom:0;right:0;width:calc(var(--ud) * 313)}
 #intro .mid{position:relative;display:flex;flex-direction:column;align-items:center;gap:calc(var(--uc) * 6);padding:calc(var(--uc) * 24) calc(var(--uc) * 20)}
-#intro .mid .wl{width:calc(var(--uc) * 184);height:auto}
+#intro .mid .wl{width:calc(var(--uc) * 184);height:auto;aspect-ratio:805/268;object-fit:contain}
 #go{display:block;padding:0;border:0;background:transparent;cursor:pointer;width:calc(var(--uc) * 176);transition:transform .12s ease}
 #go img{display:block;width:100%;height:auto;pointer-events:none}
 #go:active{transform:scale(.96)}
 #go:focus-visible{outline:4px solid var(--yellow);outline-offset:3px}
 @media (prefers-reduced-motion:reduce){#go{transition:none}}
 `;
-const introHtml = `<section id="intro" aria-label="POPSNAP">
+const introHtml = () => `<section id="intro" aria-label="${esc(brandName())}">
 <img class="deco tl" src="/assets/welcome-tl.svg" alt="" width="130" height="302">
 <img class="deco tr" src="/assets/welcome-tr.svg" alt="" width="262" height="209">
 <img class="deco bl" src="/assets/welcome-bl.svg" alt="" width="160" height="189">
 <img class="deco br" src="/assets/welcome-br.svg" alt="" width="313" height="371">
-<div class="mid"><img class="wl" src="/assets/welcome-logo.svg" alt="POPSNAP" width="184" height="62"><button id="go" type="button" aria-label="Get your files"><img src="/assets/welcome-btn.svg" alt="Get your files" width="156" height="46"></button></div>
+<div class="mid"><img class="wl" src="/brand/welcome-logo" alt="${esc(brandName())}" width="184" height="62"><button id="go" type="button" aria-label="Get your files"><img src="/assets/welcome-btn.svg" alt="Get your files" width="156" height="46"></button></div>
 </section>`;
 
 // Urutan tab mengikuti desain: GIF, Photo, Live.
@@ -66,7 +70,7 @@ nav a.on img{display:block}
 nav a img.flip{transform:scaleX(-1);left:calc(-8 / 134 * 100%)}
 nav a span{position:relative;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 calc(var(--u) * 6)}
 nav.many a{font-size:calc(var(--u) * 16)}
-.mlogo{display:block;width:calc(var(--u) * 70);height:auto;margin:calc(var(--u) * 23) auto calc(var(--u) * 25);filter:drop-shadow(0 1px 2px rgba(0,0,0,.25))}
+.mlogo{display:block;width:calc(var(--u) * 70);height:auto;aspect-ratio:805/268;object-fit:contain;margin:calc(var(--u) * 23) auto calc(var(--u) * 25);filter:drop-shadow(0 1px 2px rgba(0,0,0,.25))}
 .panel{display:block}.js .panel{display:none}.js .panel.on{display:block}
 .card{position:relative;margin:0 calc(var(--u) * 14);padding:calc(var(--u) * 43) calc(var(--u) * 14) calc(var(--u) * 16.5);background:#FDB939;border:1px solid #000;border-radius:calc(var(--u) * 41);box-shadow:3px 4px 4px rgba(0,0,0,.2)}
 .card+.card{margin-top:calc(var(--u) * 40)}
@@ -148,14 +152,14 @@ ${all.length ? zipBtn : ""}
   return `<!doctype html>
 <html lang="id" class="nojs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer">
-<title>POPSNAP — File kamu</title><link rel="preload" as="image" href="/assets/welcome-noise.webp">${origin ? `<link rel="preconnect" href="${esc(origin)}" crossorigin>` : ""}<link rel="icon" href="/assets/icon-popsnap.ico">
+<title>${esc(brandName())} — File kamu</title><link rel="preload" as="image" href="/assets/welcome-noise.webp">${origin ? `<link rel="preconnect" href="${esc(origin)}" crossorigin>` : ""}<link rel="icon" href="/brand/icon">
 <style>${THEME_CSS}
 ${PAGE_CSS}
 ${introCss}</style></head><body>
-${introHtml}
+${introHtml()}
 <div class="wrap"><div class="pg">
 <header class="bar">${nav}</header>
-<img class="mlogo" src="/assets/logo.png" alt="POPSNAP">
+<img class="mlogo" src="/brand/logo" alt="${esc(brandName())}">
 <main>
 ${panels}
 ${preparing ? `<p class="note" id="prep">File masih diunggah — halaman ini memperbarui sendiri.</p>` : ""}
@@ -232,7 +236,7 @@ var n=${files.length},tries=0,t=setInterval(function(){
 function landingPage() {
   return `<!doctype html>
 <html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex"><title>POPSNAP — Unduh foto kamu</title><link rel="icon" href="/assets/icon-popsnap.ico">
+<meta name="robots" content="noindex"><title>${esc(brandName())} — Unduh foto kamu</title><link rel="icon" href="/brand/icon">
 <style>${THEME_CSS}
 *{box-sizing:border-box}body{margin:0;color:#fff}
 header{position:sticky;top:0;z-index:10;background:none;pointer-events:none}
@@ -249,7 +253,7 @@ footer{text-align:center;opacity:.85;font-size:12px;padding:0 16px 28px;line-hei
 @media (min-width:700px){header .in{max-width:1000px}.logo{height:44px}main{max-width:920px;padding-top:56px}h1{font-size:54px}p.sub{font-size:19px;max-width:620px}form{max-width:640px}input{height:58px;font-size:18px}button{font-size:21px;padding:0 30px}.step h3{font-size:21px}.step p{font-size:16px}footer{font-size:14px}}
 @media (max-height:480px) and (orientation:landscape){main{padding-top:12px}h1{font-size:30px;margin-top:6px}}
 </style></head><body>
-<header><div class="in"><img class="logo" src="/assets/logo.png" alt="POPSNAP"></div></header>
+<header><div class="in"><img class="logo" src="/brand/logo" alt="${esc(brandName())}"></div></header>
 <main>
 <h1>Foto kamu sudah siap!</h1>
 <p class="sub">Scan QR di booth untuk membuka halaman fotomu. Kalau QR-nya tidak terbaca, tempel link atau kode dari booth di bawah ini.</p>
@@ -269,12 +273,12 @@ document.getElementById('f').addEventListener('submit',function(e){e.preventDefa
 </script></body></html>`;
 }
 
-const messagePage = (title, sub = "") => `<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>POPSNAP</title><link rel="icon" href="/assets/icon-popsnap.ico">
+const messagePage = (title, sub = "") => `<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(brandName())}</title><link rel="icon" href="/brand/icon">
 <style>${THEME_CSS}
 *{box-sizing:border-box}body{margin:0;min-height:100vh;min-height:100dvh;display:grid;place-items:center;padding:24px 20px;color:#fff;text-align:center}
 .msg{width:min(100%,520px)}.msg .logo{height:clamp(34px,9vw,52px);margin:0 auto 18px}
 h2{font-family:Fredoka,"Plus Jakarta Sans",sans-serif;font-style:italic;font-weight:700;font-size:clamp(24px,6vw,36px);line-height:1.2;margin:0 0 8px}
 p{margin:0;font-size:clamp(15px,3.6vw,18px);opacity:.95}
-</style></head><body><div class="msg"><img class="logo" src="/assets/logo.png" alt="POPSNAP"><h2>${esc(title)}</h2><p>${esc(sub)}</p></div></body></html>`;
+</style></head><body><div class="msg"><img class="logo" src="/brand/logo" alt="${esc(brandName())}"><h2>${esc(title)}</h2><p>${esc(sub)}</p></div></body></html>`;
 
 module.exports = { renderPage, landingPage, messagePage, esc, catFiles };

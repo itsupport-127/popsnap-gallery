@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow">
 <meta name="color-scheme" content="light">
-<title>POPSNAP Galeri — Masuk</title>
-<link rel="icon" href="/assets/icon-popsnap.ico">
+<title>{{BRAND}} Galeri — Masuk</title>
+<link rel="icon" href="/brand/icon">
 <style>
 @font-face{font-family:"Fredoka";font-weight:700;font-style:normal;font-display:swap;src:url(/assets/fredoka-700.woff2) format("woff2")}
 @font-face{font-family:"Plus Jakarta Sans";font-weight:200 800;font-style:normal;font-display:swap;src:url(/assets/jakarta.woff2) format("woff2")}
@@ -18,7 +18,7 @@ body{--ud:calc(min(100vw, 100vh * .575) / 402);--uc:calc(min(100vw, 100vh * .8, 
 .deco{position:fixed;pointer-events:none;height:auto;z-index:0}
 .tl{top:0;left:0;width:calc(var(--ud) * 130)}.tr{top:0;right:0;width:calc(var(--ud) * 262)}.bl{bottom:0;left:0;width:calc(var(--ud) * 160)}.br{bottom:0;right:0;width:calc(var(--ud) * 313)}
 main{position:relative;z-index:1;width:min(calc(var(--uc) * 400),100%)}
-.logo{display:block;width:calc(var(--uc) * 200);height:auto;margin:0 auto calc(var(--uc) * 12)}
+.logo{display:block;width:calc(var(--uc) * 200);height:auto;aspect-ratio:805/268;object-fit:contain;margin:0 auto calc(var(--uc) * 12)}
 .card{background:#fff;border:2px solid #000;border-radius:calc(var(--uc) * 22);padding:calc(var(--uc) * 26) calc(var(--uc) * 24) calc(var(--uc) * 24);box-shadow:calc(var(--uc) * 5) calc(var(--uc) * 5) 0 #000;animation:settle .45s cubic-bezier(.2,.9,.3,1.2) both}
 @keyframes settle{from{opacity:0;transform:translateY(-14px) rotate(-.8deg)}to{opacity:1;transform:none}}
 h1{margin:0 0 4px;font-family:Fredoka,"Plus Jakarta Sans",sans-serif;font-style:italic;font-weight:700;font-size:max(23px,calc(var(--uc) * 28));line-height:1.15}
@@ -49,7 +49,7 @@ input:focus{outline:none;border-color:#000;box-shadow:0 0 0 4px var(--yellow)}
 <img class="deco bl" src="/assets/welcome-bl.svg" alt="" width="160" height="189">
 <img class="deco br" src="/assets/welcome-br.svg" alt="" width="313" height="371">
 <main>
-  <img class="logo" src="/assets/welcome-logo.svg" alt="POPSNAP" width="184" height="62">
+  <img class="logo" src="/brand/welcome-logo" alt="{{BRAND}}" width="184" height="62">
   <section class="card" aria-labelledby="t">
     <h1 id="t">Masuk ke galeri</h1>
     <p class="sub">Atur bucket cloud, masa simpan file, dan unggah manual.</p>

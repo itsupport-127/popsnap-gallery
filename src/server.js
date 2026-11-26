@@ -128,6 +128,37 @@ function studioGuard(a, req, res, event) {
 }
 
 // ---------- API booth ----------
+// ---------- Merek: logo & nama galeri (bawaan POPSNAP, diganti admin di Pengaturan) ----------
+const brandNameNow = () => String(getSetting("brand_name", "") || "").trim().slice(0, 40) || "POPSNAP";
+const escHtml = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const withBrand = (html) => html.replaceAll("{{BRAND}}", escHtml(brandNameNow()));
+const DEFAULT_LOGOS = { logo: { type: "png", buf: fs.readFileSync(path.join(__dirname, "..", "public", "logo.png")) }, welcome: { type: "svg", buf: fs.readFileSync(path.join(__dirname, "..", "public", "welcome-logo.svg")) } };
+function sendBrandLogo(res, which) {
+  const b64 = getSetting("brand_logo", ""), mime = getSetting("brand_logo_mime", "");
+  res.set("X-Content-Type-Options", "nosniff");
+  if (b64 && /^image\/(png|jpeg|webp)$/.test(mime)) return res.set("Cache-Control", "no-cache").type(mime).send(Buffer.from(b64, "base64")); // ETag otomatis: berubah = langsung terlihat
+  res.set("Cache-Control", "public, max-age=300").type(DEFAULT_LOGOS[which].type).send(DEFAULT_LOGOS[which].buf);
+}
+app.get("/brand/logo", (_req, res) => sendBrandLogo(res, "logo"));
+app.get("/brand/welcome-logo", (_req, res) => sendBrandLogo(res, "welcome"));
+const DEFAULT_ICON = fs.readFileSync(path.join(__dirname, "..", "public", "icon-popsnap.ico"));
+app.get("/brand/icon", (_req, res) => { // ikon tab browser (favicon)
+  const b64 = getSetting("brand_icon", ""), mime = getSetting("brand_icon_mime", "");
+  res.set("X-Content-Type-Options", "nosniff");
+  if (b64 && /^image\/(png|jpeg|webp)$/.test(mime)) return res.set("Cache-Control", "no-cache").type(mime).send(Buffer.from(b64, "base64"));
+  res.set("Cache-Control", "public, max-age=300").type("image/x-icon").send(DEFAULT_ICON);
+});
+// Baca data-URL gambar (PNG / JPEG / WebP; jenis dari isi file): { buf, mime } atau { error }
+function readImageDataUrl(v, maxBytes) {
+  const m = /^data:image\/(?:png|jpeg|webp);base64,([A-Za-z0-9+/]+={0,2})$/.exec(String(v));
+  if (!m) return { error: "Gambar harus berupa PNG, JPG, atau WebP." };
+  const buf = Buffer.from(m[1], "base64");
+  if (buf.length > maxBytes) return { error: `Gambar terlalu besar (maksimal ${Math.round(maxBytes / 1024)} KB). Perkecil gambarnya.` };
+  const mime = buf.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])) ? "image/png"
+    : buf.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff])) ? "image/jpeg"
+    : buf.subarray(0, 4).toString("latin1") === "RIFF" && buf.subarray(8, 12).toString("latin1") === "WEBP" ? "image/webp" : "";
+  return mime ? { buf, mime, b64: m[1] } : { error: "Isi file bukan gambar PNG, JPG, atau WebP yang valid." };
+}
 app.use("/assets", express.static(path.join(__dirname, "..", "public"), { maxAge: "7d", index: false }));
 app.use(["/api", "/admin/api"], express.json({ limit: "1mb" }));
 app.get("/api/v1/ping", async (req, res) => {
@@ -474,7 +505,7 @@ function adminAuth(req, res, next) {
   if (who) { req.user = who; return next(); }
   res.set("Cache-Control", "no-store");
   if (req.originalUrl.startsWith("/admin/api/")) return res.status(401).json({ error: "Sesi habis. Masuk lagi." });
-  res.status(401).type("html").send(fs.readFileSync(path.join(__dirname, "login.html"), "utf8"));
+  res.status(401).type("html").send(withBrand(fs.readFileSync(path.join(__dirname, "login.html"), "utf8")));
 }
 // Batas percobaan salah per IP: 5x salah -> dikunci 5 menit (memori saja; reset saat layanan restart).
 const loginTries = new Map();
@@ -531,7 +562,7 @@ app.put("/admin/api/upload/:token/:fid", adminAuth, need("upload"), async (req, 
   } catch (e) { res.status(500).json({ error: e.name === "AbortError" ? "Unggahan terlalu lama (timeout)." : e.message }); }
 });
 const maskB = (b, used) => ({ id: b.id, name: b.name, endpoint: b.endpoint, region: b.region, bucket: b.bucket, accessKey: b.access_key, secretSet: !!b.secret_key, enabled: !!b.enabled, priority: b.priority, quotaGB: b.quota_bytes ? Math.round(b.quota_bytes / 1e7) / 100 : 0, usedGB: Math.round((used.get(b.id) || 0) / 1e7) / 100, health: b.health || "", healthMsg: b.health_msg || "", healthAt: b.health_at || null });
-app.get("/admin", adminAuth, (_req, res) => res.type("html").send(fs.readFileSync(path.join(__dirname, "admin.html"), "utf8")));
+app.get("/admin", adminAuth, (_req, res) => res.type("html").send(withBrand(fs.readFileSync(path.join(__dirname, "admin.html"), "utf8"))));
 app.get("/admin/api/state", adminAuth, (req, res) => {
   const used = usedBytes();
   res.json({
@@ -728,6 +759,21 @@ app.post("/admin/api/sessions-bulk", adminAuth, need("link.edit"), async (req, r
     }
   } else return res.status(400).json({ error: "Aksi tidak dikenal." });
   res.json({ ok: true, done, pending });
+});
+app.get("/admin/api/brand", adminAuth, (_req, res) => res.json({ name: getSetting("brand_name", "") || "", custom: !!getSetting("brand_logo_mime", ""), defaultName: "POPSNAP" }));
+// Logo: hanya PNG / JPEG / WebP (jenis ditentukan dari isi file, bukan dari klaim klien), maks 700 KB. SVG sengaja ditolak (bisa memuat skrip).
+app.post("/admin/api/brand", adminAuth, need("settings.edit"), (req, res) => {
+  const b = req.body || {};
+  // periksa dulu semuanya, baru simpan (satu gambar buruk tidak menyimpan sebagian)
+  const lg = b.logo && !b.resetLogo ? readImageDataUrl(b.logo, 700 * 1024) : null;
+  const ic = b.icon && !b.resetLogo ? readImageDataUrl(b.icon, 200 * 1024) : null;
+  if (lg?.error) return res.status(400).json({ error: "Logo: " + lg.error });
+  if (ic?.error) return res.status(400).json({ error: "Ikon tab: " + ic.error });
+  if (b.name !== undefined) setSetting("brand_name", String(b.name).trim().slice(0, 40));
+  if (b.resetLogo) { for (const k of ["brand_logo", "brand_logo_mime", "brand_icon", "brand_icon_mime"]) setSetting(k, ""); }
+  if (lg) { setSetting("brand_logo", lg.b64); setSetting("brand_logo_mime", lg.mime); }
+  if (ic) { setSetting("brand_icon", ic.b64); setSetting("brand_icon_mime", ic.mime); }
+  res.json({ ok: true, name: getSetting("brand_name", "") || "", custom: !!getSetting("brand_logo_mime", ""), icon: !!getSetting("brand_icon_mime", "") });
 });
 app.post("/admin/api/settings", adminAuth, need("settings.edit"), (req, res) => {
   if (req.body?.retentionDays != null) setSetting("retention_days", Math.max(1, Math.min(365, Math.round(Number(req.body.retentionDays) || 7))));

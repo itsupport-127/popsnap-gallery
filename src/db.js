@@ -62,7 +62,8 @@ CREATE INDEX IF NOT EXISTS idx_sessions_exp ON sessions(expires_at);
 `);
 
 try { db.exec("ALTER TABLE sessions ADD COLUMN manual INTEGER NOT NULL DEFAULT 0"); } catch { /* sudah ada */ }
-try { db.exec("ALTER TABLE files ADD COLUMN via_manual INTEGER NOT NULL DEFAULT 0"); } catch { /* sudah ada */ } // 1 = file diunggah lewat unggah manual (admin), bukan dari booth
+try { db.exec("ALTER TABLE files ADD COLUMN via_manual INTEGER NOT NULL DEFAULT 0"); } catch { /* sudah ada */ }
+try { db.exec("ALTER TABLE files ADD COLUMN via_admin INTEGER NOT NULL DEFAULT 0"); } catch { /* sudah ada */ } // 1 = file benar-benar diunggah lewat unggah manual admin. (via_manual versi awal salah terpasang di endpoint booth: tidak dipakai lagi) // 1 = file diunggah lewat unggah manual (admin), bukan dari booth
 // Izin foto dari tamu: bit 1 = boleh di sosmed, bit 2 = boleh dipajang di mading (3 = keduanya, 0 = tidak, NULL = belum dijawab)
 try { db.exec("ALTER TABLE sessions ADD COLUMN social INTEGER"); } catch { /* sudah ada */ }
 // Nomor transaksi photobox/kasir (PB-<studio>-<tanggal>-<urut>): supaya satu sesi bisa dilacak dengan DUA kode: kode link (token) dan nomor transaksi.

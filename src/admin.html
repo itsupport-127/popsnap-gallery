@@ -1,4 +1,4 @@
-<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>POPSNAP Galeri — Admin</title><link rel="icon" href="/assets/icon-popsnap.ico">
+<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>{{BRAND}} Galeri — Admin</title><link rel="icon" href="/brand/icon">
 <style>
 @font-face{font-family:"Fredoka";font-weight:700;font-style:normal;font-display:swap;src:url(/assets/fredoka-700.woff2) format("woff2")}
 @font-face{font-family:"Plus Jakarta Sans";font-weight:200 800;font-style:normal;font-display:swap;src:url(/assets/jakarta.woff2) format("woff2")}
@@ -9,7 +9,9 @@ body{margin:0;min-height:100vh;font-family:"Plus Jakarta Sans",system-ui,-apple-
 .layout{display:grid;grid-template-columns:var(--side) 1fr;min-height:100vh}
 /* ---- sidebar ---- */
 aside{position:sticky;top:0;height:100vh;display:flex;flex-direction:column;padding:22px 16px 18px;background:var(--blue) url(/assets/welcome-noise.webp) 0 0/402px 437px;border-right:2px solid #000;z-index:30;overflow:auto}
-.brand{display:block;margin:0 auto 4px;width:168px;height:auto;filter:drop-shadow(0 2px 3px rgba(0,0,0,.25))}
+.brandrow{display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}.brandprev{flex:0 0 auto;width:min(100%,260px);aspect-ratio:805/268;background:var(--blue) url(/assets/welcome-noise.webp) 0 0/402px 437px;border:2px solid #000;border-radius:14px;overflow:hidden}.brandprev img{display:block;width:100%;height:100%;object-fit:contain}.brandform{flex:1 1 260px;min-width:0;max-width:440px}.brandicon{display:flex;gap:12px;align-items:center;margin-top:14px}.brandicon .bi{flex:0 0 auto;width:48px;height:48px;border-radius:10px;border:2px solid #000;background:var(--blue) url(/assets/welcome-noise.webp) 0 0/402px 437px;display:grid;place-items:center;overflow:hidden}.brandicon .bi img{width:32px;height:32px;object-fit:contain}
+.brandbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.brand{display:block;margin:0 auto 4px;width:168px;height:auto;aspect-ratio:805/268;object-fit:contain;filter:drop-shadow(0 2px 3px rgba(0,0,0,.25))}
 .tag{margin:0 0 18px;text-align:center;color:#fff;font-style:italic;font-weight:800;font-size:13px;letter-spacing:.04em;text-shadow:0 1px 2px rgba(0,0,0,.35)}
 nav{display:flex;flex-direction:column;gap:6px}
 nav a{position:relative;display:flex;align-items:center;gap:12px;padding:11px 14px;border:1px solid transparent;border-radius:999px;color:#fff;text-decoration:none;font-weight:800;font-style:italic;font-size:15px;text-shadow:0 1px 2px rgba(0,0,0,.25);transition:background .15s}
@@ -101,7 +103,7 @@ tr.blk td{background:#FFF3F5}
  body.open aside{transform:none}
  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:25;display:none}body.open .scrim{display:block}
  .topbar{display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:20;height:56px;padding:0 14px;background:var(--blue) url(/assets/welcome-noise.webp) 0 0/402px 437px;border-bottom:2px solid #000}
- .topbar img{height:34px;width:auto}
+ .topbar img{height:34px;width:auto;aspect-ratio:805/268;object-fit:contain}
  .ham{display:grid;place-items:center;width:40px;height:40px;border:1px solid #000;border-radius:12px;background:#fff;cursor:pointer}
  .ham svg{width:22px;height:22px;stroke:#000;fill:none;stroke-width:2.4;stroke-linecap:round}
  .main{padding:20px 14px 40px}h1{font-size:26px}
@@ -109,11 +111,11 @@ tr.blk td{background:#FFF3F5}
 @media (prefers-reduced-motion:reduce){aside,button.btn{transition:none}}
 #bform[hidden],#u_panel[hidden]{display:none}
 </style></head><body>
-<div class="topbar"><button class="ham" id="ham" aria-label="Buka menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button><img src="/assets/welcome-logo.svg" alt="POPSNAP"></div>
+<div class="topbar"><button class="ham" id="ham" aria-label="Buka menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button><img src="/brand/welcome-logo" alt="{{BRAND}}"></div>
 <div class="scrim" id="scrim"></div>
 <div class="layout">
 <aside>
- <img class="brand" src="/assets/welcome-logo.svg" alt="POPSNAP">
+ <img class="brand" src="/brand/welcome-logo" alt="{{BRAND}}">
  <p class="tag">GALERI · ADMIN</p>
  <nav id="nav">
   <a href="#ringkasan" data-p="ringkasan"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Ringkasan</span></a>
@@ -241,6 +243,18 @@ Pilih <b>folder tanggal</b> (mis. <code>2026-10-23</code>) untuk mengunggah bany
 </dialog>
 <section class="page" id="pg-pengaturan">
  <h1>Pengaturan</h1><p class="lead">Aturan umum galeri.</p>
+ <div class="card"><h2>Logo &amp; nama galeri</h2>
+  <p class="muted" style="margin:6px 0 12px">Tampil di halaman pelanggan, halaman masuk, dan admin. Kosong = POPSNAP bawaan.</p>
+  <div class="brandrow">
+   <div class="brandprev" title="Kotak logo 3:1: logo dimuat utuh di dalam kotak ini"><img id="br_img" src="/brand/welcome-logo" alt=""></div>
+   <div class="brandform">
+    <label for="br_name">Nama galeri</label><input id="br_name" maxlength="40" placeholder="POPSNAP" autocomplete="off">
+    <div class="brandicon"><div class="bi"><img id="br_ico" src="/brand/icon" alt=""></div><div><b>Ikon tab browser</b><div class="muted">Dibuat otomatis dari logo, atau pilih gambar persegi sendiri.</div><button class="btn sm s" type="button" style="margin-top:6px" onclick="$('br_ico_file').click()">Pilih ikon tab…</button><input id="br_ico_file" type="file" accept="image/png,image/jpeg,image/webp" hidden onchange="pickIcon(this)"></div></div>
+    <div class="brandbtns"><button class="btn s" type="button" onclick="$('br_file').click()">Pilih logo…</button><input id="br_file" type="file" accept="image/png,image/jpeg,image/webp" hidden onchange="pickLogo(this)"><button class="btn" type="button" onclick="saveBrand()">Simpan</button><button class="btn s" type="button" onclick="resetBrand()">Kembalikan ke POPSNAP</button></div>
+    <p class="muted" id="br_msg" style="margin:10px 0 0">PNG transparan lebar sekitar 800 px dengan perbandingan lebar:tinggi 3:1 paling pas. Logo berbentuk lain (persegi / tinggi) tetap muat utuh dan tidak merusak tampilan, hanya tampil lebih kecil. Latar halaman biru, jadi pilih logo yang terlihat di atas biru (putih / terang / berwarna).</p>
+   </div>
+  </div>
+ </div>
  <div class="card"><h2>Masa simpan file</h2>
   <div class="grid" style="margin-top:8px;max-width:440px"><div><label for="ret">Hari (file dihapus otomatis setelahnya)</label><input id="ret" type="number" min="1" max="365"></div><div style="align-self:end"><button class="btn" onclick="saveRet()">Simpan</button></div></div>
   <p class="muted" style="margin:10px 0 0">Berlaku untuk sesi BARU. Rekomendasi: 7 atau 15 hari.</p></div>
@@ -254,7 +268,24 @@ let editId=null;const $=i=>document.getElementById(i);
 let ME={perms:[],admin:false,catalog:{},presets:[]};const can=p=>ME.admin||ME.perms.includes(p);
 const api=async(u,o)=>{const r=await fetch(u,{headers:{'Content-Type':'application/json'},...o});if(r.status===401){location.reload();return {}}const d=await r.json();if(r.status===403){toast(d.error||'Tidak punya hak.',1)}return d};
 async function logout(){await fetch('/admin/api/logout',{method:'POST'});location.replace('/admin')}
-async function load(){const s=await api('/admin/api/state');$('ret').value=s.retentionDays;$('zip').value=s.zipMode||(s.zipEnabled===false?'0':'1');
+const BR={pending:null,pendingIcon:null,iconOwn:false};
+function sqIcon(im,size){const c=document.createElement('canvas');c.width=c.height=size;const k=Math.min(size/im.naturalWidth,size/im.naturalHeight),w=im.naturalWidth*k,h=im.naturalHeight*k;c.getContext('2d').drawImage(im,(size-w)/2,(size-h)/2,w,h);return c.toDataURL('image/png')}
+function loadImg(f,cb,err){const im=new Image(),u=URL.createObjectURL(f);im.onload=()=>{URL.revokeObjectURL(u);cb(im)};im.onerror=()=>{URL.revokeObjectURL(u);err()};im.src=u}
+function pickIcon(inp){const f=inp.files&&inp.files[0];inp.value='';if(!f)return;const m=$('br_msg');if(!/^image\/(png|jpeg|webp)$/.test(f.type)){m.textContent='Pilih gambar PNG, JPG, atau WebP.';return}loadImg(f,im=>{BR.pendingIcon=sqIcon(im,128);BR.iconOwn=true;$('br_ico').src=BR.pendingIcon;m.textContent='Pratinjau ikon tab baru. Tekan Simpan untuk memakainya.'},()=>{m.textContent='Gambar tidak bisa dibaca.'})}
+function brandBust(){const q='?'+Date.now();const lk=document.querySelector('link[rel="icon"]');if(lk)lk.href='/brand/icon'+q;document.querySelectorAll('img[src^="/brand/"]').forEach(i=>{i.src=i.src.split('?')[0]+q})}
+async function loadBrand(){const b=await api('/admin/api/brand');if(b&&b.name!==undefined){$('br_name').value=b.name||'';BR.pending=null}}
+function pickLogo(inp){const f=inp.files&&inp.files[0];inp.value='';if(!f)return;const m=$('br_msg');
+ if(!/^image\/(png|jpeg|webp)$/.test(f.type)){m.textContent='Pilih gambar PNG, JPG, atau WebP.';return}
+ const im=new Image(),u=URL.createObjectURL(f);im.onload=()=>{URL.revokeObjectURL(u);const k=Math.min(1,800/Math.max(im.naturalWidth,im.naturalHeight)),c=document.createElement('canvas');c.width=Math.max(1,Math.round(im.naturalWidth*k));c.height=Math.max(1,Math.round(im.naturalHeight*k));c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+  let d=c.toDataURL('image/png');if(d.length>900000){const w=c.toDataURL('image/webp',.9);if(w.startsWith('data:image/webp'))d=w}
+  if(d.length>900000){m.textContent='Logo terlalu besar. Perkecil gambarnya (lebar sekitar 800 px).';return}
+  BR.pending=d;$('br_img').src=d;if(!BR.iconOwn){BR.pendingIcon=sqIcon(im,128);$('br_ico').src=BR.pendingIcon}m.textContent='Pratinjau logo baru (ikon tab ikut dibuat dari logo). Tekan Simpan untuk memakainya.'};
+ im.onerror=()=>{URL.revokeObjectURL(u);m.textContent='Gambar tidak bisa dibaca.'};im.src=u}
+async function saveBrand(){const body={name:$('br_name').value.trim()};if(BR.pending)body.logo=BR.pending;if(BR.pendingIcon)body.icon=BR.pendingIcon;const r=await api('/admin/api/brand',{method:'POST',body:JSON.stringify(body)});
+ if(r&&r.ok){BR.pending=null;BR.pendingIcon=null;BR.iconOwn=false;$('br_msg').textContent='Tersimpan. Halaman pelanggan langsung memakai logo, nama, dan ikon tab ini (ikon tab di browser bisa butuh muat ulang halaman).';brandBust();$('br_img').src='/brand/welcome-logo?'+Date.now()}else if(r&&r.error){$('br_msg').textContent=r.error}}
+async function resetBrand(){if(!confirm('Kembalikan logo, nama, dan ikon tab ke POPSNAP bawaan?'))return;const r=await api('/admin/api/brand',{method:'POST',body:JSON.stringify({name:'',resetLogo:true})});
+ if(r&&r.ok){BR.pending=null;BR.pendingIcon=null;BR.iconOwn=false;$('br_name').value='';$('br_msg').textContent='Dikembalikan ke POPSNAP bawaan.';brandBust();$('br_img').src='/brand/welcome-logo?'+Date.now()}}
+async function load(){loadBrand();const s=await api('/admin/api/state');$('ret').value=s.retentionDays;$('zip').value=s.zipMode||(s.zipEnabled===false?'0':'1');
 $('s_sessions').textContent=s.stats.sessions;$('s_files').textContent=s.stats.files;$('s_pending').textContent=s.stats.pending;$('s_buckets').textContent=s.buckets.filter(b=>b.enabled).length;
 $('pub').innerHTML=s.publicUrl?`<a href="${s.publicUrl}" target="_blank" rel="noopener">${s.publicUrl}</a>`:'<span class="bad">(PUBLIC_URL belum diisi di .env!)</span>';
 $('cap').innerHTML=s.buckets.length?s.buckets.map(b=>{const pct=b.quotaGB?Math.min(100,Math.round(b.usedGB/b.quotaGB*100)):0;const left=b.quotaGB?Math.max(0,b.quotaGB-b.usedGB):0;const lv=!b.quotaGB?'':(left<=1||pct>=95)?'full':(left<=3||pct>=80)?'warn':'';return `<div style="margin:10px 0"><b>${he(b.name)}</b> <span class="muted">${b.usedGB} GB${b.quotaGB?' / '+b.quotaGB+' GB':' (tanpa batas)'}</span> <span class="pill ${b.enabled?'ok':'bad'}">${b.enabled?'Aktif':'Nonaktif'}</span>${healthPill(b)}${b.quotaGB?`<div class="bar" title="Sisa ${Math.round(left*100)/100} GB"><i class="${lv}" style="width:${pct}%"></i></div>`:''}</div>`}).join(''):'<p class="muted">Belum ada bucket. Tambahkan di menu Penyimpanan cloud.</p>';

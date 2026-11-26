@@ -160,6 +160,39 @@ console.log("ok  region Backblaze B2 diambil dari endpoint, path-style benar");
   const hc = await fetch(`${base}/s/k7m2-9qxh-4b`); assert.strictEqual(hc.status, 200);
   const ht = await hc.text(); assert(ht.includes('id="intro"') && ht.includes('id="go"') && ht.includes("K7M2 9QXH 4B"));
   console.log("ok  kode pendek tidak peka huruf besar/kecil + layar pembuka");
+  // merek: logo & nama bisa diganti admin, bawaan POPSNAP, file palsu / SVG ditolak
+  {
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+    const dflt = await fetch(base + "/brand/logo"); assert.strictEqual(dflt.status, 200); assert.strictEqual(dflt.headers.get("content-type"), "image/png");
+    assert((await fetch(base + "/brand/welcome-logo")).headers.get("content-type").startsWith("image/svg"));
+    assert((await (await fetch(base + "/s/" + code)).text()).includes("<title>POPSNAP"));
+    assert.strictEqual((await j("/admin/api/brand", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })).status, 401);
+    const post = (b) => j("/admin/api/brand", { method: "POST", headers: admin, body: JSON.stringify(b) });
+    assert.strictEqual((await post({ logo: "data:image/svg+xml;base64," + Buffer.from("<svg onload=alert(1)/>").toString("base64") })).status, 400);
+    assert.strictEqual((await post({ logo: "data:image/png;base64," + Buffer.from("bukan gambar sama sekali").toString("base64") })).status, 400);
+    assert.strictEqual((await post({ logo: "data:image/png;base64," + Buffer.alloc(710 * 1024, 1).toString("base64") })).status, 400);
+    assert.strictEqual((await fetch(base + "/brand/logo")).headers.get("content-type"), "image/png"); // masih bawaan setelah semua penolakan
+    const ok = await post({ name: 'Studio <b>Ku</b> & "Co"', logo: "data:image/png;base64," + png.toString("base64") }); assert(ok.body.ok && ok.body.custom);
+    const cl = await fetch(base + "/brand/logo"); assert.strictEqual(cl.headers.get("content-type"), "image/png"); assert(Buffer.from(await cl.arrayBuffer()).equals(png));
+    assert.strictEqual((await fetch(base + "/brand/welcome-logo")).headers.get("content-type"), "image/png");
+    const pg = await (await fetch(base + "/s/" + code)).text();
+    assert(pg.includes("Studio &lt;b&gt;Ku&lt;/b&gt; &amp; &quot;Co&quot; — File kamu") && !pg.includes("<b>Ku</b>") && pg.includes('src="/brand/logo"'), "nama harus di-escape");
+    const adm = await (await fetch(base + "/admin", { headers: admin })).text(); assert(adm.includes("Studio &lt;b&gt;Ku&lt;/b&gt;") && !adm.includes("{{BRAND}}"));
+    assert.strictEqual((await j("/admin/api/brand", { headers: admin })).body.name, 'Studio <b>Ku</b> & "Co"');
+    // ikon tab (favicon): bawaan, unggah, tolak file palsu (tidak menyimpan sebagian), semua halaman memakai /brand/icon
+    assert.strictEqual((await fetch(base + "/brand/icon")).headers.get("content-type"), "image/x-icon");
+    assert.strictEqual((await post({ name: "Tidak Tersimpan", icon: "data:image/png;base64," + Buffer.from("palsu").toString("base64") })).status, 400);
+    assert.strictEqual((await j("/admin/api/brand", { headers: admin })).body.name, 'Studio <b>Ku</b> & "Co"'); // nama tidak ikut berubah saat ikon ditolak
+    assert((await post({ icon: "data:image/png;base64," + png.toString("base64") })).body.icon);
+    const ci = await fetch(base + "/brand/icon"); assert.strictEqual(ci.headers.get("content-type"), "image/png"); assert(Buffer.from(await ci.arrayBuffer()).equals(png));
+    for (const u of ["/s/" + code, "/", "/s/zzzzzzzzzz"]) assert((await (await fetch(base + u)).text()).includes('rel="icon" href="/brand/icon"'), u);
+    assert((await (await fetch(base + "/admin", { headers: admin })).text()).includes('href="/brand/icon"'));
+    const rs = await post({ name: "", resetLogo: true }); assert(rs.body.ok && !rs.body.custom && !rs.body.icon);
+    assert.strictEqual((await fetch(base + "/brand/icon")).headers.get("content-type"), "image/x-icon");
+    assert((await (await fetch(base + "/s/" + code)).text()).includes("<title>POPSNAP"));
+    assert((await fetch(base + "/brand/welcome-logo")).headers.get("content-type").startsWith("image/svg"));
+    console.log("ok  merek: bawaan POPSNAP, unggah logo + nama (di-escape), SVG / file palsu / terlalu besar ditolak, kembali ke bawaan");
+  }
 
   // ---- izin foto (sosmed / mading) + status untuk kasir ----
   {
